@@ -1,4 +1,6 @@
 import numpy as np
+from numpy import ndarray
+
 import scipy.sparse as sp
 import networkx as nx
 
@@ -86,3 +88,67 @@ def generate_mis_ba(n: int = 400, m: int = 4, seed: int = None) -> MILP:
         b_eq = np.empty((0,))
 
         yield MILP(c, A_ub, b_ub, A_eq, b_eq, nilone, n, n)
+
+
+def is_feasible_box(
+    x: ndarray, p: MILP, rtol: float = 1e-5, atol: float = 1e-8
+) -> ndarray:
+    """Check bounding box constraints."""
+    lo, hi = p.bounds.T  # N x 2
+
+    # computing constraint slacks and fp-comparing to zero is slow
+    # XXX this should be cythonized. Also we can ignore rtols, since
+    #  we can subtract and compare to zero
+    return np.logical_and(
+        # np.isclose(np.maximum(x - hi, 0.0), 0.0, rtol, atol),
+        lo - x <= atol,  # lo - abs(lo) * rtol - atol <= x,
+        # np.isclose(np.maximum(lo - x, 0.0), 0.0, rtol, atol),
+        x - hi <= atol,  # x <= hi + abs(hi) * rtol + atol,
+    )
+
+
+def is_feasible_ub(
+    x: ndarray, p: MILP, rtol: float = 1e-5, atol: float = 1e-8
+) -> ndarray:
+    """Check the affine upper bound inequality constraints."""
+    if p.A_ub is None or p.b_ub is None:
+        return np.array([], bool)
+
+    # A_ub x \leq b_ub
+    # np.isclose(np.maximum(p.A_ub.dot(x), p.b_ub), p.b_ub, rtol, atol)
+    # p.A_ub.dot(x) <= (p.b_ub + abs(p.b_ub) * rtol + atol)
+    return p.A_ub.dot(x) - p.b_ub <= atol
+
+
+def is_feasible_eq(
+    x: ndarray, p: MILP, rtol: float = 1e-5, atol: float = 1e-8
+) -> ndarray:
+    """Check the linear equality constraints."""
+    if p.A_eq is None or p.b_eq is None:
+        return np.array([], bool)
+
+    # A_eq x = b_eq
+    # np.isclose(p.A_eq.dot(x) - p.b_eq, 0.0, rtol, atol)
+    return abs(p.A_eq.dot(x) - p.b_eq) <= atol
+
+
+def is_feasible_int(
+    x: ndarray, p: MILP, rtol: float = 1e-5, atol: float = 1e-8
+) -> ndarray:
+    """Check integer feasibility."""
+    # test integrality of all variables, then force continuous to True
+    # np.isclose(x.round(), x, rtol, atol)
+    feasible = abs(x.round() - x) <= atol
+    feasible[p.m :] = True
+    return feasible
+
+
+def is_feasible(
+    x: ndarray, p: MILP, rtol: float = 1e-5, atol: float = 1e-6
+) -> tuple[bool]:
+    """Check feasibility of the solution."""
+    ok_bnd = is_feasible_box(x, p, rtol, atol).all()
+    ok_aub = is_feasible_ub(x, p, rtol, atol).all()
+    ok_aeq = is_feasible_eq(x, p, rtol, atol).all()
+    ok_int = is_feasible_int(x, p, rtol, atol).all()
+    return ok_bnd, ok_aub, ok_aeq, ok_int
