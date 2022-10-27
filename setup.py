@@ -27,7 +27,6 @@ if __name__ == "__main__":
             "scipy",
         ],
         test_requires=[
-            "gitpython",
             "pytest",
         ],
     )
