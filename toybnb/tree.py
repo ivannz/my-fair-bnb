@@ -205,23 +205,23 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     if not lp.success and errors == "raise":
         raise RuntimeError(lp.message)
 
-    # assign the correct state to the node
-    is_feas_int = is_feasible_int(lp.x, p)
-    if lp.success and is_feas_int.all():
-        status = Status.FEASIBLE
+    # get the correct state and compute the fractional mask
+    if lp.success:
+        fractional = np.packbits(~is_feasible_int(lp.x, p))
+        if fractional.any():
+            status, mask = Status.OPEN, fractional
 
-    elif lp.success:
-        status = Status.OPEN
+        else:
+            status, mask = Status.FEASIBLE, None
 
     else:
-        status = Status.INFEASIBLE
+        status, mask = Status.INFEASIBLE, None
 
     id = len(G)  # XXX max(G, default=0) + 1, or G.graph["n_nodes"] += 1
     # create the node with its MILP sub-problem, the relaxed lp solution, the
-    #  packed mask of integer variables, that happen to have fractional values,
-    #  the status, and the best-so-far integer-feasible solution in the subtree,
-    #  which is initialized to the own lp solution when it is integer-feasible.
-    mask = np.packbits(~is_feas_int) if status != Status.FEASIBLE else None
+    #  mask of integer variables, that happen to have fractional values, the
+    #  status, and the best-so-far integer-feasible solution in the sub-tree,
+    #  which is initialized to own lp solution, when it is integer-feasible.
     best = lp if status == Status.FEASIBLE else None
     G.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best)
 
@@ -242,7 +242,9 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     if status == Status.OPEN:
         heappush(G.graph["duals"], dual)
 
-    elif G.graph["incumbent"].fun > lp.fun:  # Status.FEASIBLE
+    elif G.graph["incumbent"].fun > lp.fun:
+        assert status == Status.FEASIBLE
+
         # integer-feasible `lp.x` is the best possible solution in the current
         #  node's sub-problem, hence we update the global incumbent
         G.graph["incumbent"] = lp
