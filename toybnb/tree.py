@@ -168,28 +168,29 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
         # the queue for sub-problem prioritization
         queue=[],  # deque([]),
         # the max heap of dual bounds for pruning
-        # XXX we store bounds in `DualBound` nt-s with value of the
-        #  opposite sign, since heapq subroutines are all for min-heap!
+        # XXX we store bounds in `DualBound` nt-s with value of the opposite
+        #  sign, since heapq subroutines are all for min-heap!
         duals=[],
         # the path taken through the search tree [(node, primal, dual)]
         track=[],
-        # the best (lowest) dual bound and node (typically the root, since
-        #  its feasibility region is a super set for all sub-problems in the
-        #  search tree, but may be another node due to numerical issues)
-        dual_bound=DualBound(-np.inf, None),
         # the total number of lp solver iterations
         lpiter=0,
         # the total number of bnb loop iterations
         iter=0,
         # own random number generator for tie resolution
         rng=default_rng(seed),
+        # the root node is unlikely to be anything other than zero
+        root=None,
+        # the best (lowest) dual bound and node (typically the root, since
+        #  its feasibility region is a super set for all sub-problems in the
+        #  search tree, but may be another node due to numerical issues)
+        dual_bound=DualBound(-np.inf, None),
         # statistics for variable pseudocosts
         pseudocosts=dict(
             lo=np.zeros(p.n),
             hi=np.zeros(p.n),
             n=np.zeros(p.n, int),
         ),
-        root=None,
     )
 
 
