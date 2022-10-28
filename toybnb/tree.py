@@ -1,0 +1,177 @@
+import numpy as np
+import networkx as nx
+
+from heapq import heappush
+from scipy.optimize import linprog, OptimizeResult
+from numpy.random import default_rng
+
+from numpy import ndarray
+from collections import namedtuple
+
+from enum import Enum
+from .milp import MILP, is_feasible_int
+
+
+def lpsolve(p: MILP) -> tuple[ndarray, float]:
+    """Drop the integrality constraints and solve the relaxed LP."""
+    # fire the scipy's lp solver for \min_x \{ c^\top x : A x \leq b, x \in [l, u]\}
+    # XXX "interior-point", "simplex", and "revised simplex" are deprecated
+    # XXX linprog accepts bounds in N x 2 ndarray form as well, with unbounded
+    #  variables having `\pm\infty` bounds.
+    #  [_clean_inputs](scipy/optimize/_linprog_util.py#L390-452)
+    lp = linprog(p.c, p.A_ub, p.b_ub, p.A_eq, p.b_eq, p.bounds, method="highs")
+    if lp.success:
+        return lp
+
+    # the data in OptimizeResult in case of an error status varies depending
+    #  on the method, thus we construct our own result
+    # XXX `.x` is x^* the solution and `.fun` is c^\top x^*
+    return OptimizeResult(
+        x=None,
+        # XXX `lp.status` codes ( `lp.success = (lp.status == 0)`)
+        #  0 sucess, 1 iter limit, 2 infeasible, 3 unbounded, 4 numerical
+        fun=+np.inf if lp.status == 2 else -np.inf,
+        success=False,
+        status=lp.status,
+        message=lp.message,
+        nit=lp.nit,
+    )
+
+
+class Status(Enum):
+    """Node state status codes.
+
+    Meaning
+    -------
+    OPEN:
+        A sub-problem has been created and its dual value computed. It's current
+        lp value (dual lower bound) is better, than the current global incumbent
+        solution. The node still has some branching options left to explore.
+    CLOSED:
+        All branching options offered by this node have been exhausted, but its
+        sub-tree has not necessarily been fathomed.
+    PRUNED:
+        The sub-problem was eliminated due to sub-optimality, which
+        was certified by the existende of an integer feasible incumbent,
+        whose objective value was lower than the lp relxation bound.
+    FEASIBLE:
+        The lp relaxation of the node's sub-problem is integer-feasible and
+        optimal, hence there is no reason to dive into its sub-tree. The branch
+        is fathomed.
+    INFEASIBLE:
+        The relaxed lp has a degenerate feasibility region, meaning that node's
+        the MILP sub-problem is infeasible. Again, the sub-tree is fathomed.
+
+    Closed nodes
+    ------------
+    If the node's lp solution is integer infeasible, then the subset of the
+    node's feasibility region NOT COVERED by any axis-aligned binary split on
+    fractional variables is excluded from all sub-problems in the sub-tree. This
+    region is an open rectangle, possibly unbounded, with at least one side
+    being an open interval between CONSECUTIVE integers. Thus, this region can
+    be safely exculed from consideration, since is cannot contain any integer
+    feasible solutions to the node's problem.
+
+    A sub-problem in a partition of a binary split either may be immediately
+    infeasible (empty feasibility set), or may have produced an integer feasible
+    candidate after diving after exhausting all branching options. Although the
+    current node's lp lower bound might still have a large gap with respect to
+    the primal bound, we can safely mark this node as fathomed.
+
+    Solution for the node's integer sub-problem
+    -------------------------------------------
+    If children of this node produced integer feasible solutions, then
+    we can select the best among them and assign it to this node.
+    """
+
+    OPEN = 0
+    CLOSED = 5
+
+    PRUNED = 1
+    FEASIBLE = 2
+    INFEASIBLE = 3
+
+
+DualBound = namedtuple("DualBound", "val,node")
+
+
+def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
+    """Initialize the branch and bound search tree."""
+    inc = OptimizeResult(x=None, fun=np.inf, success=False, status=1, message="")
+
+    # init the tree graph and add the root node with the original problem
+    return nx.DiGraph(
+        None,
+        # the original primal linear problem
+        p=p,
+        # the best integer feasible solution found so far
+        incumbent=inc,
+        # the queue for sub-problem prioritization
+        queue=[],  # deque([]),
+        # the max heap of dual bounds for pruning
+        # XXX we store bounds in `DualBound` nt-s with value of the
+        #  opposite sign, since heapq subroutines are all for min-heap!
+        duals=[],
+        # the path taken through the search tree [(node, primal, dual)]
+        track=[],
+        # the best (lowest) dual bound and node (typically the root, since
+        #  its feasibility region is a super set for all sub-problems in the
+        #  search tree, but may be nother node due to numerical issues)
+        dual_bound=DualBound(-np.inf, None),
+        # the total number of lp solver iterations
+        lpiter=0,
+        # the total number of bnb loop iterations
+        iter=0,
+        # own random number generator for tie resolution
+        rng=default_rng(seed),
+        # statistics for variable pseudocosts
+        pseudocosts=dict(
+            lo=np.zeros(p.n),
+            hi=np.zeros(p.n),
+            n=np.zeros(p.n, int),
+        ),
+        root=None,
+    )
+
+
+def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
+    """Add a sub-problem to the search tree and the dual bound heap."""
+    assert errors in ("raise", "ignore")
+
+    # solve the realxed LP problem (w/o integrality)
+    lp = lpsolve(p)
+    G.graph["lpiter"] += lp.nit
+    if not lp.success and errors == "raise":
+        raise RuntimeError(lp.message)
+
+    # assign the correct state to the node
+    is_feas_int = is_feasible_int(lp.x, p)
+    if lp.success and is_feas_int.all():
+        status = Status.FEASIBLE
+
+    elif lp.success:
+        status = Status.OPEN
+
+    else:
+        status = Status.INFEASIBLE
+
+    id = len(G)  # XXX max(G, default=0) + 1, or G.graph["n_nodes"] += 1
+    # create the node with its MILP sub-problem, the relaxed lp solution, the
+    #  packed mask of integer variables, that happen to have fractional values,
+    #  the status, and the best-so-far integer-feasible solution in the subtree,
+    #  which is initialized to the own lp solution when it is integer-feasible.
+    mask = np.packbits(~is_feas_int)
+    best = lp if status == Status.FEASIBLE else None
+    G.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best)
+
+    # enqueue the node if LP was solved successfuly
+    if lp.success:
+        # node priority is -ve dual value (for easier pruning)
+        dual = DualBound(-lp.fun, id)
+        heappush(G.graph["duals"], dual)
+
+        # track the best dual bound (mind the -ve sign!!!)
+        if dual.val > G.graph["dual_bound"].val:
+            G.graph["dual_bound"] = dual
+
+    return id
