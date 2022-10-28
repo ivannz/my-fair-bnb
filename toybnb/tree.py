@@ -233,6 +233,23 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     return id
 
 
+def gap(G: nx.DiGraph) -> float:
+    """Compute the primal-dual gap the way SCIP does it.
+
+    Details
+    -------
+    SCIP's docs say that the gap is `+inf` if the primal and dual bounds have
+    opposite signs, otherwise, it is
+            `|primalbound - dualbound| / min(|primalbound|, |dualbound|)|`.
+    """
+    f_primal = G.graph["incumbent"].fun
+    f_dual = -G.graph["dual_bound"].val
+    if f_dual < 0 <= f_primal or f_primal < 0 <= f_dual:
+        return float("inf")
+
+    return abs(f_primal - f_dual) / min(abs(f_primal), abs(f_dual))
+
+
 def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     """Branch the search tree at the specified node."""
     data, children = G.nodes[node], []
