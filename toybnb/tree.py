@@ -172,7 +172,7 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
         track=[],
         # the best (lowest) dual bound and node (typically the root, since
         #  its feasibility region is a super set for all sub-problems in the
-        #  search tree, but may be nother node due to numerical issues)
+        #  search tree, but may be another node due to numerical issues)
         dual_bound=DualBound(-np.inf, None),
         # the total number of lp solver iterations
         lpiter=0,
@@ -197,6 +197,11 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     # solve the realxed LP problem (w/o integrality)
     lp = lpsolve(p)
     G.graph["lpiter"] += lp.nit
+
+    # The lp can be unbounded only at the root. Indeed, at no point does
+    #  the BnB tree remove any constraint. Hence, if we detected an unbounded
+    #  LP in a node of a sub-tree then it is also unbounded at the root of
+    #  that sub-tree.
     if not lp.success and errors == "raise":
         raise RuntimeError(lp.message)
 
@@ -216,19 +221,31 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     #  packed mask of integer variables, that happen to have fractional values,
     #  the status, and the best-so-far integer-feasible solution in the subtree,
     #  which is initialized to the own lp solution when it is integer-feasible.
-    mask = np.packbits(~is_feas_int)
+    mask = np.packbits(~is_feas_int) if status != Status.FEASIBLE else None
     best = lp if status == Status.FEASIBLE else None
     G.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best)
 
-    # enqueue the node if LP was solved successfuly
-    if lp.success:
-        # node priority is -ve dual value (for easier pruning)
-        dual = DualBound(-lp.fun, id)
+    # the relaxation is INFEASIBLE, hence there is no lower bound to track
+    #  and nothing to fathom anymore
+    if not lp.success:
+        return id
+
+    # track the worst dual bound
+    # XXX isn't this bound obtained right a the root by construction?
+    dual = DualBound(-lp.fun, id)  # XXX -ve sign due to min-heap!
+    if dual.val > G.graph["dual_bound"].val:
+        G.graph["dual_bound"] = dual
+
+    # we use min-heap with -ve dual values for easier pruning of OPEN nodes.
+    # FEASIBLE nodes have already found the best possible integer-feasible
+    #  solution, and do not require fathoming
+    if status == Status.OPEN:
         heappush(G.graph["duals"], dual)
 
-        # track the best dual bound (mind the -ve sign!!!)
-        if dual.val > G.graph["dual_bound"].val:
-            G.graph["dual_bound"] = dual
+    elif G.graph["incumbent"].fun > lp.fun:  # Status.FEASIBLE
+        # integer-feasible `lp.x` is the best possible solution in the current
+        #  node's sub-problem, hence we update the global incumbent
+        G.graph["incumbent"] = lp
 
     return id
 
@@ -248,22 +265,6 @@ def gap(G: nx.DiGraph) -> float:
         return float("inf")
 
     return abs(f_primal - f_dual) / min(abs(f_primal), abs(f_dual))
-
-
-def update_incumbent(G: nx.DiGraph, node: int) -> bool:
-    """Checks of the current nodes's lp produced a better feasible solution."""
-    status, lp = G.nodes[node]["status"], G.nodes[node]["lp"]
-
-    # If the relaxed lp's value (dual) is better than the incumbent's
-    #  objective value (primal) AND the lp's solution is integer feasible,
-    #  then we can make it out new incumbent
-    if status != Status.FEASIBLE or G.graph["incumbent"].fun < lp.fun:
-        return False
-
-    # XXX integer-feasible `lp.x` is the best solution in the current node's
-    #  sub-problem, hence we can propagate it up the tree
-    G.graph["incumbent"] = lp
-    return True
 
 
 def prune(G: nx.DiGraph) -> None:
