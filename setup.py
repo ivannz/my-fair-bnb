@@ -25,6 +25,7 @@ if __name__ == "__main__":
             "numpy",
             "networkx",
             "scipy",
+            "pyscipopt",
         ],
         test_requires=[
             "pytest",
