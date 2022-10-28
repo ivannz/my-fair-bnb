@@ -98,7 +98,8 @@ def split(p: MILP, by: int, threshold: float) -> (MILP, MILP):
     S \setminus \bigl(S \cap (L_j \uplus R_j) \bigr)
         = S
         \cap \Bigl(
-            \bigl(\lfloor x_j\rfloor, \lceil x_j\rceil \bigr) \times \mathbb{R}^{n-1}
+            \bigl(\lfloor x_j\rfloor, \lceil x_j\rceil \bigr)
+                \times \mathbb{R}^{n-1}
         \Bigr)
         = \emptyset
         \,, $$
@@ -152,7 +153,7 @@ class Status(Enum):
     fractional variables is excluded from all sub-problems in the sub-tree. This
     region is an open rectangle, possibly unbounded, with at least one side
     being an open interval between CONSECUTIVE integers. Thus, this region can
-    be safely exculed from consideration, since is cannot contain any integer
+    be safely excluded from consideration, since is cannot contain any integer
     feasible solutions to the node's problem.
 
     A sub-problem in a partition of a binary split either may be immediately
