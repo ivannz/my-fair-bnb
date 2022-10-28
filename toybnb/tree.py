@@ -107,13 +107,16 @@ class Status(Enum):
         All branching options offered by this node have been exhausted, but its
         sub-tree has not necessarily been fathomed.
     PRUNED:
-        The sub-problem was eliminated due to sub-optimality, which
-        was certified by the existende of an integer feasible incumbent,
-        whose objective value was lower than the lp relxation bound.
+        The node had to be eliminated due to certifiable sub-optimality. During
+        the search a non overlapping sub-problem produced an integer-feasible
+        solution with a LOWER objective value, than this node's lp relaxation,
+        which, by design, bounds any integer-feasible solution in its region.
     FEASIBLE:
         The lp relaxation of the node's sub-problem is integer-feasible and
         optimal, hence there is no reason to dive into its sub-tree. The branch
         is fathomed.
+        Note that a feasible node can reside in a pruned branch, in which case
+        it is also considered pruned.
     INFEASIBLE:
         The relaxed lp has a degenerate feasibility region, meaning that node's
         the MILP sub-problem is infeasible. Again, the sub-tree is fathomed.
@@ -194,7 +197,7 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     """Add a sub-problem to the search tree and the dual bound heap."""
     assert errors in ("raise", "ignore")
 
-    # solve the realxed LP problem (w/o integrality)
+    # solve the relaxed LP problem w/o integrality constraints
     lp = lpsolve(p)
     G.graph["lpiter"] += lp.nit
 
