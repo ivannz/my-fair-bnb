@@ -231,3 +231,26 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
             G.graph["dual_bound"] = dual
 
     return id
+
+
+def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
+    """Branch the search tree at the specified node."""
+    data, children = G.nodes[node], []
+
+    # XXX if we get a sub-problem P with a feasibility set, that
+    #  is a proper subset of a MILP Q, with solution Q.x in P, or
+    #  infeasible, then we could reuse Q and not consider P
+    p, lp = data["p"], data["lp"]
+
+    # partition the problem into non-overlapping sub-problems
+    p_lo, p_hi = split(p, by, lp.x[by])
+    for p, d in (p_lo, -1), (p_hi, +1):
+        # create a new node and solve its relaxation
+        leaf = add(G, p, errors="ignore")
+        children.append(leaf)
+
+        # link the node to the leaf (new or reused)
+        G.add_edge(node, leaf, var=(by, d, lp.x[by]))
+
+    # return the ids of the spawned children
+    return tuple(children)
