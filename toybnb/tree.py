@@ -13,26 +13,50 @@ from enum import Enum
 from .milp import MILP, is_feasible_int
 
 
+def build_optresult(
+    x: ndarray = None,
+    status: int = 1,
+    message: str = "",
+    fun: float = np.inf,
+    nit: int = 0,
+    **ignore,
+) -> OptimizeResult:
+    """Build an OptimizeResult with only the essential fields."""
+    return OptimizeResult(
+        # the solution of the optimization
+        x=x,
+        # whether or not the optimizer exited successfully
+        success=status == 0,
+        # termination status code of the optimizer
+        # 0 success, 1 iteration/time limit, 2 infeasible, 3 unbounded, 4 other
+        status=status,
+        # description of the cause of the termination
+        message=message,
+        # the value of the objective function
+        fun=fun,
+        # number of iterations performed by the optimizer
+        nit=nit,
+    )
+
+
 def lpsolve(p: MILP) -> tuple[ndarray, float]:
     """Drop the integrality constraints and solve the relaxed LP."""
-    # fire the scipy's lp solver for \min_x \{ c^\top x : A x \leq b, x \in [l, u]\}
-    # XXX "interior-point", "simplex", and "revised simplex" are deprecated
-    # XXX linprog accepts bounds in N x 2 ndarray form as well, with unbounded
-    #  variables having `\pm\infty` bounds.
-    #  [_clean_inputs](scipy/optimize/_linprog_util.py#L390-452)
+    # use scipy's linprog to solve the relaxed problem
+    #     $\min_x \{ c^\top x : A x \leq b, x \in [l, u] \}$
+    # XXX linprog does a sizeable amount of pre-processing and cleaning before
+    #  actually solving. we could benefit from calling the solver directly.
+    # XXX bounds can be in an `N x 2` array with `\pm\infty` bounds.
+    #  see [_clean_inputs](scipy/optimize/_linprog_util.py#L390-452)
     lp = linprog(p.c, p.A_ub, p.b_ub, p.A_eq, p.b_eq, p.bounds, method="highs")
     if lp.success:
-        return lp
+        # `.x` is $x^*$ the solution and `.fun` is $c^\top x^*$
+        return build_optresult(**lp)
 
     # the data in OptimizeResult in case of an error status varies depending
     #  on the method, thus we construct our own result
-    # XXX `.x` is x^* the solution and `.fun` is c^\top x^*
-    return OptimizeResult(
+    return build_optresult(
         x=None,
-        # XXX `lp.status` codes ( `lp.success = (lp.status == 0)`)
-        #  0 sucess, 1 iter limit, 2 infeasible, 3 unbounded, 4 numerical
-        fun=+np.inf if lp.status == 2 else -np.inf,
-        success=False,
+        fun=-np.inf if lp.status == 3 else +np.inf,
         status=lp.status,
         message=lp.message,
         nit=lp.nit,
@@ -156,15 +180,12 @@ DualBound = namedtuple("DualBound", "val,node")
 
 def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
     """Initialize the branch and bound search tree."""
-    inc = OptimizeResult(x=None, fun=np.inf, success=False, status=1, message="")
-
-    # init the tree graph and add the root node with the original problem
     return nx.DiGraph(
         None,
         # the original primal linear problem
         p=p,
         # the best integer feasible solution found so far
-        incumbent=inc,
+        incumbent=build_optresult(x=None, fun=np.inf, status=1, message=""),
         # the queue for sub-problem prioritization
         queue=[],  # deque([]),
         # the max heap of dual bounds for pruning
