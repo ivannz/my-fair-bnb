@@ -215,22 +215,17 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
     )
 
 
-def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
+def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
     """Add a sub-problem to the search tree and the dual bound heap."""
-    assert errors in ("raise", "ignore")
-
     # solve the relaxed LP problem w/o integrality constraints
     lp = lpsolve(p)
     G.graph["lpiter"] += lp.nit
 
-    # The lp can be unbounded only at the root. Indeed, at no point does
+    # get the correct state and compute the fractional mask
+    # XXX The lp can be unbounded only at the root. Indeed, at no point does
     #  the BnB tree remove any constraint. Hence, if we detected an unbounded
     #  LP in a node of a sub-tree then it is also unbounded at the root of
     #  that sub-tree.
-    if not lp.success and errors == "raise":
-        raise RuntimeError(lp.message)
-
-    # get the correct state and compute the fractional mask
     if lp.success:
         fractional = np.packbits(~is_feasible_int(lp.x, p))
         if fractional.any():
@@ -248,7 +243,7 @@ def add(G: nx.DiGraph, p: MILP, *, errors: str = "raise") -> int:
     #  status, and the best-so-far integer-feasible solution in the sub-tree,
     #  which is initialized to own lp solution, when it is integer-feasible.
     best = lp if status == Status.FEASIBLE else None
-    G.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best)
+    G.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best, **attrs)
 
     # the relaxation is INFEASIBLE, hence there is no lower bound to track
     #  and nothing to fathom anymore
@@ -296,16 +291,14 @@ def gap(G: nx.DiGraph) -> float:
 
 def prune(G: nx.DiGraph) -> None:
     """Mark nodes that certifiably cannot produce a better solution (primal < dual)."""
-    # `.duals` is a min-heap of all nodes that have their -ve dual bounds lower
-    #   than the global primal bound
+    # `.duals` is a min-heap of all OPEN nodes that have their -ve dual bounds
+    #   lower than the global primal bound
     duals, incumbent = G.graph["duals"], G.graph["incumbent"]
     while duals and (incumbent.fun < -duals[0].val):
         # the node at the top of the heap, has a certificate that indicates that
         #  no solution in its sub-tree node is better than the current incumbent
         node = heappop(duals).node
         G.nodes[node]["status"] = Status.PRUNED
-        # XXX if we wish to keep FEASIBLE status we need to
-        #  slightly alter the logic of `bnb_update_incumbent`.
 
 
 def backup(G: nx.DiGraph, node: int) -> None:
@@ -319,7 +312,7 @@ def backup(G: nx.DiGraph, node: int) -> None:
     best = data["best"]
     while G.pred[node]:
         # get the parent and see if the min-tree needs fixing
-        node = next(iter(G.pred[node]), None)
+        node = next(iter(G.pred[node]))
         data = G.nodes[node]
         if data["best"] is not None and data["best"].fun <= best.fun:
             return
@@ -341,7 +334,7 @@ def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     p_lo, p_hi = split(p, by, lp.x[by])
     for p, d in (p_lo, -1), (p_hi, +1):
         # create a new node and solve its relaxation
-        leaf = add(G, p, errors="ignore")
+        leaf = add(G, p, depth=data["depth"] + 1)
         children.append(leaf)
 
         # link the node to the leaf (new or reused)
