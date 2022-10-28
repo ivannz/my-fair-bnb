@@ -266,6 +266,20 @@ def update_incumbent(G: nx.DiGraph, node: int) -> bool:
     return True
 
 
+def prune(G: nx.DiGraph) -> None:
+    """Mark nodes that certifiably cannot produce a better solution (primal < dual)."""
+    # `.duals` is a min-heap of all nodes that have their -ve dual bounds lower
+    #   than the global primal bound
+    duals, incumbent = G.graph["duals"], G.graph["incumbent"]
+    while duals and (incumbent.fun < -duals[0].val):
+        # the node at the top of the heap, has a certificate that indicates that
+        #  no solution in its sub-tree node is better than the current incumbent
+        node = heappop(duals).node
+        G.nodes[node]["status"] = Status.PRUNED
+        # XXX if we wish to keep FEASIBLE status we need to
+        #  slightly alter the logic of `bnb_update_incumbent`.
+
+
 def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     """Branch the search tree at the specified node."""
     data, children = G.nodes[node], []
