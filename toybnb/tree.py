@@ -250,6 +250,22 @@ def gap(G: nx.DiGraph) -> float:
     return abs(f_primal - f_dual) / min(abs(f_primal), abs(f_dual))
 
 
+def update_incumbent(G: nx.DiGraph, node: int) -> bool:
+    """Checks of the current nodes's lp produced a better feasible solution."""
+    status, lp = G.nodes[node]["status"], G.nodes[node]["lp"]
+
+    # If the relaxed lp's value (dual) is better than the incumbent's
+    #  objective value (primal) AND the lp's solution is integer feasible,
+    #  then we can make it out new incumbent
+    if status != Status.FEASIBLE or G.graph["incumbent"].fun < lp.fun:
+        return False
+
+    # XXX integer-feasible `lp.x` is the best solution in the current node's
+    #  sub-problem, hence we can propagate it up the tree
+    G.graph["incumbent"] = lp
+    return True
+
+
 def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     """Branch the search tree at the specified node."""
     data, children = G.nodes[node], []
