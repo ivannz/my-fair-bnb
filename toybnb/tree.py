@@ -287,6 +287,26 @@ def prune(G: nx.DiGraph) -> None:
         #  slightly alter the logic of `bnb_update_incumbent`.
 
 
+def backup(G: nx.DiGraph, node: int) -> None:
+    """Propagate this node's integer-feasible solution up the tree."""
+    data = G.nodes[node]
+    if data["status"] != Status.FEASIBLE:
+        return
+
+    # the best integer-feasible solutions live in a min-tree: the parent's
+    #  solution is guaranteed to be not worse than a solution of any child
+    best = data["best"]
+    while G.pred[node]:
+        # get the parent and see if the min-tree needs fixing
+        node = next(iter(G.pred[node]), None)
+        data = G.nodes[node]
+        if data["best"] is not None and data["best"].fun <= best.fun:
+            return
+
+        # update the parent's best-so-far solution with the child's
+        data["best"] = best
+
+
 def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     """Branch the search tree at the specified node."""
     data, children = G.nodes[node], []
@@ -305,6 +325,9 @@ def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
 
         # link the node to the leaf (new or reused)
         G.add_edge(node, leaf, var=(by, d, lp.x[by]))
+
+        # propagate the feasible solution up the branch
+        backup(G, leaf)
 
     # return the ids of the spawned children
     return tuple(children)
