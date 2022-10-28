@@ -1,14 +1,15 @@
 import numpy as np
 import networkx as nx
 
-from heapq import heappush
 from scipy.optimize import linprog, OptimizeResult
 from numpy.random import default_rng
+from heapq import heappush, heappop  # noqa: F401
+from math import floor, ceil
 
 from numpy import ndarray
 from collections import namedtuple
-
 from enum import Enum
+
 from .milp import MILP, is_feasible_int
 
 
@@ -36,6 +37,61 @@ def lpsolve(p: MILP) -> tuple[ndarray, float]:
         message=lp.message,
         nit=lp.nit,
     )
+
+
+def split(p: MILP, by: int, threshold: float) -> (MILP, MILP):
+    r"""Split the problem into halves by the specified integer variable.
+
+    Let $
+        S = \{
+            Ax \leq b
+            \,, x \in [l, u]
+            \,, x \in \mathbb{Z}^m \times \mathbb{R}^{n-m}
+        \}
+    $ be the feasibility set of a MILP, and $
+        S' = \{
+            Ax \leq b
+            \,, x \in [l, u]
+        \}
+    $ be its relaxation (continuous).
+
+    Let $
+        x \in \arg\min\{c^\top x \colon x \in S'\}
+    $ be an lp solution and assume that the set $
+        F_x \subseteq \{1..m\}
+    $ of variables that are supposed to take integer values, but ended up being
+    fractional, is non-empty. Then each $j \in F$ yields the following axis-aligned
+    binary split of the original region $S$:
+    $$
+    L_j = \bigl[l_j, \lfloor x_j \rfloor \bigr] \times \mathbb{R}^{n-1}
+        \,, $$
+    and
+    $$
+    R_j = \bigl[\lceil x_j \rceil, u_j \bigr] \times \mathbb{R}^{n-1}
+        \,. $$
+    Careful observation reveals that
+    $$
+    S \setminus \bigl(S \cap (L_j \uplus R_j) \bigr)
+        = S
+        \cap \Bigl(
+            \bigl(\lfloor x_j\rfloor, \lceil x_j\rceil \bigr) \times \mathbb{R}^{n-1}
+        \Bigr)
+        = \emptyset
+        \,, $$
+    since the $j$-th variable must take integer values.
+    """
+    lo, hi = p.bounds[by]
+
+    # `lo` sub-problem [l_j, \lfloor \tau \rfloor]
+    b_lo = p.bounds.copy()
+    b_lo[by, 1] = floor(threshold)
+
+    # `hi` sub-problem [\lceil \tau \rceil, u_j]
+    b_hi = p.bounds.copy()
+    b_hi[by, 0] = ceil(threshold)
+
+    # make a shallow copy
+    return p._replace(bounds=b_lo), p._replace(bounds=b_hi)
 
 
 class Status(Enum):
