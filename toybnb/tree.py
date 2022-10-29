@@ -125,9 +125,9 @@ class Status(Enum):
     Meaning
     -------
     OPEN:
-        A sub-problem has been created and its dual value computed. It's current
-        lp value (dual lower bound) is better, than the current global incumbent
-        solution. The node still has some branching options left to explore.
+        A MILP sub-problem has the lp lower bound, which is better, than the
+        current global incumbent solution. The node still has some branching
+        options left to explore.
     CLOSED:
         All branching options offered by this node have been exhausted, but its
         sub-tree has not necessarily been fathomed.
@@ -189,9 +189,7 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
         incumbent=build_optresult(x=None, fun=np.inf, status=1, message=""),
         # the queue for sub-problem prioritization
         queue=[],  # deque([]),
-        # the max heap of dual bounds for pruning
-        # XXX we store bounds in `DualBound` nt-s with value of the opposite
-        #  sign, since heapq subroutines are all for min-heap!
+        # the max-heap of OPEN nodes ordered by the lp bound for faster pruning
         duals=[],
         # the path taken through the search tree [(node, primal, dual)]
         track=[],
@@ -203,7 +201,7 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
         rng=default_rng(seed),
         # the root node is unlikely to be anything other than zero
         root=None,
-        # the best (lowest) dual bound and node (typically the root, since
+        # the worst (lowest) dual bound and node (typically the root, since
         #  its feasibility region is a super set for all sub-problems in the
         #  search tree, but may be another node due to numerical issues)
         dual_bound=DualBound(-np.inf, None),
@@ -217,25 +215,30 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
 
 
 def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
-    """Add a sub-problem to the search tree and the dual bound heap."""
+    """Add a new MILP sub-problem to the search tree."""
     # solve the relaxed LP problem w/o integrality constraints
     lp = lpsolve(p)
     G.graph["lpiter"] += lp.nit
 
     # get the correct state and compute the fractional mask
-    # XXX The lp can be unbounded only at the root. Indeed, at no point does
-    #  the BnB tree remove any constraint. Hence, if we detected an unbounded
-    #  LP in a node of a sub-tree then it is also unbounded at the root of
-    #  that sub-tree.
     if lp.success:
         fractional = np.packbits(~is_feasible_int(lp.x, p))
         if fractional.any():
+            # If a MILP sub-problem has an integer-INfeasible lp solution, then
+            #  its feasibility region has to be searched further
             status, mask = Status.OPEN, fractional
 
         else:
+            # If an optimal lp solution is also integer-feasible, then `lp.x`
+            #  is the BEST possible solution to this nodes MILP sub-problem.
             status, mask = Status.FEASIBLE, None
 
     else:
+        # The lp relaxation of the MILP is either infeasible or unbounded. By
+        #  construction, unboundedness can only happen at the root. Indeed, BnB
+        #  search progressively shrinks the feasibility set, which means that
+        #  if we detect an unbounded node then this node's parent is also
+        #  unbounded. Therefore we only have to worry about the root.
         status, mask = Status.INFEASIBLE, None
 
     id = len(G)  # XXX max(G, default=0) + 1, or G.graph["n_nodes"] += 1
@@ -251,23 +254,24 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
     if not lp.success:
         return id
 
-    # track the worst dual bound
-    # XXX isn't this bound obtained right a the root by construction?
-    dual = DualBound(-lp.fun, id)  # XXX -ve sign due to min-heap!
+    # We store the lp bound in `DualBound` with the OPPOSITE sign, since we'll
+    #  be using it to prune certifiably sub-optimal nodes with min-heap procs
+    #  from `heapq`
+    dual = DualBound(-lp.fun, id)
+
+    # track the worst lp lower bound
+    # XXX isn't this bound obtained right at the root by construction?
     if dual.val > G.graph["dual_bound"].val:
         G.graph["dual_bound"] = dual
 
-    # we use min-heap with -ve dual values for easier pruning of OPEN nodes.
-    # FEASIBLE nodes have already found the best possible integer-feasible
-    #  solution, and do not require fathoming
+    # the `duals` heap tracks only those nodes, the MILP sub-problem of which
+    #  still needs their sub-tree explored.
     if status == Status.OPEN:
         heappush(G.graph["duals"], dual)
 
+    # see if the integer-feasible solution may update the global incumbent
     elif G.graph["incumbent"].fun > lp.fun:
         assert status == Status.FEASIBLE
-
-        # integer-feasible `lp.x` is the best possible solution in the current
-        #  node's sub-problem, hence we update the global incumbent
         G.graph["incumbent"] = lp
 
     return id
@@ -291,15 +295,16 @@ def gap(G: nx.DiGraph) -> float:
 
 
 def prune(G: nx.DiGraph) -> None:
-    """Mark nodes that certifiably cannot produce a better solution (primal < dual)."""
-    # `.duals` is a min-heap of all OPEN nodes that have their -ve dual bounds
-    #   lower than the global primal bound
-    duals, incumbent = G.graph["duals"], G.graph["incumbent"]
+    """Mark OPEN nodes that certifiably CANNOT produce a better solution."""
+    duals, incumbent, nodes = G.graph["duals"], G.graph["incumbent"], G.nodes
+
+    # the node at the top of the heap, has a certificate that indicates that
+    #  no solution in its sub-tree node is better than the current incumbent
     while duals and (incumbent.fun < -duals[0].val):
-        # the node at the top of the heap, has a certificate that indicates that
-        #  no solution in its sub-tree node is better than the current incumbent
         node = heappop(duals).node
-        G.nodes[node]["status"] = Status.PRUNED
+        assert nodes[node]["status"] == Status.OPEN
+
+        nodes[node]["status"] = Status.PRUNED
 
 
 def backup(G: nx.DiGraph, node: int) -> None:
