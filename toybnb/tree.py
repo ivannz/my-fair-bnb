@@ -3,7 +3,7 @@ import networkx as nx
 
 from scipy.optimize import linprog, OptimizeResult
 from numpy.random import default_rng
-from heapq import heappush, heappop  # noqa: F401
+from heapq import heappush, heappop
 from math import floor, ceil
 
 from numpy import ndarray
@@ -39,7 +39,7 @@ def build_optresult(
     )
 
 
-def lpsolve(p: MILP) -> tuple[ndarray, float]:
+def lpsolve(p: MILP) -> OptimizeResult:
     """Drop the integrality constraints and solve the relaxed LP."""
     # use scipy's linprog to solve the relaxed problem
     #     $\min_x \{ c^\top x : A x \leq b, x \in [l, u] \}$
