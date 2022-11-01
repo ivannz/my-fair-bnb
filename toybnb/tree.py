@@ -127,24 +127,28 @@ class Status(Enum):
     OPEN:
         A MILP sub-problem has the lp lower bound, which is better, than the
         current global incumbent solution. The node still has some branching
-        options left to explore.
+        options left to explore. OPEN nodes may ARBITRARILY change their status
+        to CLOSED or PRUNED.
     CLOSED:
         All branching options offered by this node have been exhausted, but its
-        sub-tree has not necessarily been fathomed.
+        sub-tree has not necessarily been fathomed. A CLOSED node may only
+        change its status to PRUNED.
     PRUNED:
         The node had to be eliminated due to certifiable sub-optimality. During
         the search a non overlapping sub-problem produced an integer-feasible
         solution with a LOWER objective value, than this node's lp relaxation,
         which, by design, bounds any integer-feasible solution in its region.
+        A PRUNED node MUST stay pruned forever.
     FEASIBLE:
         The lp relaxation of the node's sub-problem is integer-feasible and
         optimal, hence there is no reason to dive into its sub-tree. The branch
         is fathomed.
-        Note that a feasible node can reside in a pruned branch, in which case
-        it is also considered pruned.
+        A FEASIBLE node may only change its status to PRUNED. Feasible nodes can
+        reside in a pruned branch, in which case it is also considered pruned.
     INFEASIBLE:
         The relaxed lp has a degenerate feasibility region, meaning that node's
         the MILP sub-problem is infeasible. Again, the sub-tree is fathomed.
+        An INFEASIBLE node never changes its status.
 
     Closed nodes
     ------------
@@ -161,6 +165,14 @@ class Status(Enum):
     candidate after diving after exhausting all branching options. Although the
     current node's lp lower bound might still have a large gap with respect to
     the primal bound, we can safely mark this node as fathomed.
+
+    CLOSED status does not mean that the entire sub-tree of a node has been
+    fathomed, only that this node's local branching options have all been
+    explored. For example, it is possible that an OPEN node while still siting
+    in the `duals` heap with lp dual < primal, may in the same iteration change
+    its status to CLOSED, have one immediate integer-feasible child improve
+    the incumbent, making the node eligible for pruning, yet have another child
+    completely unfathomed.
 
     Solution for the node's integer sub-problem
     -------------------------------------------
@@ -302,8 +314,10 @@ def prune(G: nx.DiGraph) -> None:
     #  no solution in its sub-tree node is better than the current incumbent
     while duals and (incumbent.fun < -duals[0].val):
         node = heappop(duals).node
-        assert nodes[node]["status"] == Status.OPEN
 
+        # we can only see OPEN or CLOSED nodes in this heap, since INFEASIBLE
+        #  and FEASIBLE are never added to the heap, and PRUNED never reenter.
+        assert nodes[node]["status"] in (Status.OPEN, Status.CLOSED)
         nodes[node]["status"] = Status.PRUNED
 
 
