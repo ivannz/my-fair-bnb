@@ -8,6 +8,45 @@ from .milp import MILP
 from .tree import Status
 
 
+def nodesel_dfs(G: nx.DiGraph, *reschedule: int) -> int:
+    """A simple node selector which prioritizes depth.
+
+    Parameters
+    ----------
+    G: nx.DiGraph
+        The  bnb search tree.
+
+    reschedule: int
+        The list of nodes to put back into the queue. It is either empty, or
+        it a list with the node itself at the first position, followed by its
+        immediate children.
+
+    Returns
+    -------
+    node: int
+        The next OPEN node to visit. The `IndexError` is raised if nothing
+        can be proposed.
+    """
+    dq, nodes = G.graph["queue"], G.nodes
+    for node in reschedule:
+        # a rescheduled node may be FEASIBLE, INFEASIBLE, OPEN, or even PRUNED,
+        #  e.g. when a child of a still OPEN node improved the incumbent
+        assert nodes[node]["status"] != Status.CLOSED
+
+        # We schedule only OPEN nodes
+        if nodes[node]["status"] == Status.OPEN:
+            dq.append(node)
+
+    while dq:
+        node = dq.pop()
+
+        # node's status OPEN may have changed to PRUNED or CLOSED
+        if nodes[node]["status"] == Status.OPEN:
+            return node
+
+    raise IndexError
+
+
 def search(
     p: MILP,
     nodesel: callable,
@@ -62,7 +101,7 @@ def search(
             # XXX the track NEVER contains any INFEASIBLE nodes: it may have
             #  OPEN nodes, if early stopped, PRUNED nodes, with dual > primal,
             #  and CLOSED nodes. Due to the above assert it may not contain
-            #  FEASIBLE nodes, although the nodesel could return such nodes.
+            #  FEASIBLE nodes, although the `nodesel` could return such nodes.
 
             # try branching at the node, marking is CLOSED if impossible
             try:
@@ -73,8 +112,8 @@ def search(
                 # sprout and schedule the shoots, and reschedule the node
                 #  itself, since it may have other variables to explore
                 children = bnb.branch(tree, node, j)
-                reschedule.extend(children)
                 reschedule.append(node)
+                reschedule.extend(children)
 
             except IndexError:
                 # mark the node as CLOSED, since no variable can be branched on
