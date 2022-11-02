@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import sparse as sp
 from collections import defaultdict
 
 from scipy.optimize import OptimizeResult
@@ -35,13 +36,25 @@ def to_scip(p: MILP, **params: dict) -> Model:
         # the first `m` variables are integer-valued, the rest are continuous
         x[j] = m.addVar(f"x[{j}]", "I" if j < p.m else "C", *p.bounds[j])
 
-    if p.A_ub is not None:
+    if sp.issparse(p.A_ub):
+        for k in range(p.A_ub.shape[0]):
+            csr = p.A_ub.getrow(k)
+            Ax_k = quicksum(v * x[j] for j, v in zip(csr.indices, csr.data))
+            m.addCons(Ax_k <= p.b_ub[k], f"A_ub[{k}, j] x[j] <= b_ub[{k}]")
+
+    elif p.A_ub is not None:
         A = p.A_ub
         for k in range(A.shape[0]):
             Ax_k = quicksum(A[k, j] * x[j] for j in range(A.shape[1]))
             m.addCons(Ax_k <= p.b_ub[k], f"A_ub[{k}, j] x[j] <= b_ub[{k}]")
 
-    if p.A_eq is not None:
+    if sp.issparse(p.A_eq):
+        for k in range(p.A_eq.shape[0]):
+            csr = p.A_eq.getrow(k)
+            Ax_k = quicksum(v * x[j] for j, v in zip(csr.indices, csr.data))
+            m.addCons(Ax_k == p.b_eq[k], f"A_eq[{k}, j] x[j] == b_eq[{k}]")
+
+    elif p.A_eq is not None:
         A = p.A_eq
         for k in range(A.shape[0]):
             Ax_k = quicksum(A[k, j] * x[j] for j in range(A.shape[1]))
