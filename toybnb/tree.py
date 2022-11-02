@@ -103,7 +103,11 @@ def split(p: MILP, by: int, threshold: float) -> (MILP, MILP):
         \Bigr)
         = \emptyset
         \,, $$
-    since the $j$-th variable must take integer values.
+    since the $j$-th variable must take integer values. This means, that having
+    branched on variable $j$ at some node, it is not necessary to revisit this
+    node to explore other branching alternatives, since the region, excluded by
+    $L_j \uplus R_j$ can NEVER contain an integer-feasible solution, even if we
+    were we to branch on another variable.
     """
     lo, hi = p.bounds[by]
 
