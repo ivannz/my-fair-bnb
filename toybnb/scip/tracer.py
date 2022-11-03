@@ -75,7 +75,7 @@ class TracedBranching(Branching):
     @wraps(Branching.reset)
     def reset(self, instance, *dynamics_args, **dynamics_kwargs):
         try:
-            self.tracer_ = SCIPTreeTracer(instance)
+            self.tracer_ = SCIPTreeTracer(instance.as_pyscipopt())
             return super().reset(instance, *dynamics_args, **dynamics_kwargs)
         finally:
             self.tracer_.update(self.model.as_pyscipopt())
