@@ -19,6 +19,7 @@ if __name__ == "__main__":
         license="MIT",
         packages=[
             "toybnb",
+            "toybnb.scip",
         ],
         python_requires=">=3.9",
         install_requires=[
@@ -26,6 +27,7 @@ if __name__ == "__main__":
             "networkx",
             "scipy",
             "pyscipopt",
+            "ecole",
         ],
         test_requires=[
             "pytest",

@@ -5,7 +5,7 @@ from collections import defaultdict
 from scipy.optimize import OptimizeResult
 from pyscipopt import Model, quicksum, SCIP_STATUS
 
-from .milp import MILP
+from ..milp import MILP
 
 
 TO_NUMERIC_STATUS = {
