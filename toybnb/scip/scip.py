@@ -5,6 +5,7 @@ from collections import defaultdict
 from scipy.optimize import OptimizeResult
 from pyscipopt import Model, quicksum, SCIP_STATUS
 
+from .cip import from_cip
 from ..milp import MILP
 
 
@@ -101,3 +102,18 @@ def get_result(m: Model) -> OptimizeResult:
         message=f"{message} ({status})",
         nit=m.getNLPIterations(),
     )
+
+
+def from_scip(m: Model) -> MILP:
+    import os
+    from tempfile import mkstemp
+
+    """Convert a SCIP MILP model into out own MILP by parsinga CIP file."""
+    try:
+        fd, cip = mkstemp(suffix=".cip")
+        m.writeProblem(cip, False, False)
+        return from_cip(cip)
+
+    finally:
+        os.close(fd)
+        os.unlink(cip)
