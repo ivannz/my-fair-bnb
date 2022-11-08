@@ -100,16 +100,31 @@ def from_cip(filename: str) -> MILP:
     lut = {v: j for j, v in enumerate(v_int + v_con)}
     m, n = len(v_int), len(v_int) + len(v_con)
 
+    # split the constraints into eq and ineq
+    m_cons_eq, m_cons_ineq = [], []
+    for lhs, op, rhs in m_cons.values():
+        assert op in ("<=", "==", ">=")
+        which = m_cons_eq if op == "==" else m_cons_ineq
+        which.append((lhs, op, rhs))
+
     # rebuild A_ub x <= b_ub
-    b_ub = np.full(len(m_cons), np.nan, float)
-    A_ub = sp.lil_array((len(m_cons), n), dtype=float)
-    for j, (lhs, op, rhs) in enumerate(m_cons.values()):
+    b_ub = np.full(len(m_cons_ineq), np.nan, float)
+    A_ub = sp.lil_array((len(m_cons_ineq), n), dtype=float)
+    for j, (lhs, op, rhs) in enumerate(m_cons_ineq):
         # flip the sign of geq consraints
         s = +1 if op == "<=" else -1
 
         b_ub[j] = rhs * s
         for v, coef in lhs:
             A_ub[j, lut[v]] = coef * s
+
+    # rebuild A_eq x == b_eq
+    b_eq = np.full(len(m_cons_eq), np.nan, float)
+    A_eq = sp.lil_array((len(m_cons_eq), n), dtype=float)
+    for j, (lhs, _, rhs) in enumerate(m_cons_eq):
+        b_eq[j] = rhs
+        for v, coef in lhs:
+            A_eq[j, lut[v]] = coef
 
     # reconstruct the cost vector and the bounds
     c = np.zeros(len(lut))
@@ -122,13 +137,4 @@ def from_cip(filename: str) -> MILP:
     if sense == "max":
         c *= -1
 
-    return MILP(
-        c,
-        A_ub.tocsr(),
-        b_ub,
-        np.empty((0, n), float),
-        np.empty((0,), float),
-        bounds,
-        n,
-        m,
-    )
+    return MILP(c, A_ub.tocsr(), b_ub, A_eq.tocsr(), b_eq, bounds, n, m)
