@@ -2,17 +2,20 @@ from threading import Condition, Thread
 
 
 class Coroutine(Thread):
-    """My own coroutine for control inversion."""
+    """My own coroutine for control inversion.
 
-    _nothing: object = object()
+    Can use `return` and `raise` in the target, but have to call `.co_yield`
+    instead of `yield`.
+    """
 
-    def __init__(self, target, name=None, *, daemon=None):
-        super().__init__(target=target, name=name, daemon=daemon)
+    _nothing: object = object()  # a sentinel object
+
+    def __init__(self, target, name=None, args=(), kwargs=None, *, daemon=None):
+        super().__init__(None, target, name, args, kwargs, daemon=daemon)
 
         self.cv = Condition()
-        self.is_running, self.is_finished, self.is_closed = True, False, False
-        self.exception_ = self._nothing
-        self.request_, self.value_ = self._nothing, self._nothing
+        self.run, self.is_running = self.co_run, True
+        self.exception_, self.value_ = self._nothing, self._nothing
 
     def co_acquire(self) -> None:
         """`.co_acquire` is followed by `.co_release` in our thread"""
@@ -22,9 +25,44 @@ class Coroutine(Thread):
     def co_release(self) -> None:
         """our `.co_release` is coupled to their `.acquire`"""
         self.is_running = False
-        # notify anyone waiting then release our lock
         self.cv.notify(1)
         self.cv.release()
+
+    def co_yield(self, value: ...) -> ...:
+        """Unsuspend them at `.wait`, wait for their `.resume`"""
+        self.exception_, self.value_ = self._nothing, value
+        self.co_release()
+
+        pass
+
+        self.co_acquire()
+        if self.exception_ is not self._nothing:
+            raise self.exception_
+
+        if self.value_ is not self._nothing:
+            return self.value_
+
+        raise RuntimeError
+
+    def co_raise(self, value: BaseException) -> None:
+        """Raise an exception at `.wait`"""
+        self.exception_, self.value_ = value, self._nothing
+        self.co_release()
+
+    def co_return(self, value: ...) -> None:
+        self.co_raise(StopIteration(value))
+
+    def co_run(self):
+        self.is_running = True
+        try:
+            self.co_acquire()
+            self.co_return(self._target(*self._args, **self._kwargs))
+
+        except BaseException as e:
+            self.co_raise(e)
+
+        finally:
+            del self._target, self._args, self._kwargs
 
     def acquire(self) -> None:
         """`.acquire` is followed by `.release` in the same thread"""
@@ -37,55 +75,34 @@ class Coroutine(Thread):
         self.cv.notify(1)
         self.cv.release()
 
-    def co_yield(self, value: ...) -> ...:
-        self.exception_, self.value_ = self._nothing, value
-        self.co_release()
-
-        self.co_acquire()
-        if self.exception_ is not self._nothing:
-            raise self.exception_
-
-        assert self.request_ is not self._nothing
-        return self.request_
-
-    def co_throw(self, value: BaseException) -> None:
-        self.exception_, self.value_ = value, self._nothing
-        self.co_release()
-
-    def co_close(self):
-        self.exception_, self.value_ = self._nothing, self._nothing
-        self.is_finished = True
-        self.co_release()
-
     def wait(self) -> ...:
+        """Wait for their `.co_yield`"""
         self.acquire()
         if self.exception_ is not self._nothing:
             raise self.exception_
 
-        assert self.value_ is not self._nothing
-        return self.value_
+        if self.value_ is not self._nothing:
+            return self.value_
+
+        raise RuntimeError
 
     def resume(self, value: ...) -> None:
-        self.exception_, self.request_ = self._nothing, value
+        """Resume them inside `.co_yield`"""
+        self.exception_, self.value_ = self._nothing, value
         self.release()
 
     def throw(self, value: BaseException) -> None:
-        self.exception_, self.request_ = value, self._nothing
+        """Raise an exception from `.co_yield`"""
+        self.exception_, self.value_ = value, self._nothing
         self.release()
 
     def close(self):
-        self.exception_, self.request_ = self._nothing, self._nothing
-        self.is_closed = True
-        self.release()
-
-    def run(self):
         try:
-            self.cv.acquire()
-            self.is_running = True
-            super().run()
+            self.throw(GeneratorExit)
+            self.wait()
 
-        except BaseException as e:
-            self.co_throw(e)
+        except (GeneratorExit, StopIteration):
+            pass
 
-        finally:
-            self.co_close()
+        else:
+            raise RuntimeError
