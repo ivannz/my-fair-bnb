@@ -83,13 +83,15 @@ def search(
 
             # terminate if the target primal-dual gap is surpassed or the node
             #  budget is exceeded
+            # XXX should we delegate these checks to nodesel? On the one hand,
+            #  separation of responsibilites, on the other hand, nodsel has
+            #  more power: it selects nodes or quits. The nature of termination
+            #  is different, though.
             if f_gap <= gap or len(tree) > n_nodes:
                 break
 
-            tree.graph["iter"] += 1
-
             # get the next OPEN node to visit
-            # XXX raises IndexError,if no node can be selected
+            # XXX raises IndexError, if no node can be selected
             node = nodesel(tree, *reschedule)
             reschedule.clear()
 
@@ -122,6 +124,8 @@ def search(
             # the tree has changed: prune certifiably sub-optimal nodes
             # XXX `duals` NEVER runs out of nodes before `nodesel` raises
             bnb.prune(tree)
+
+            tree.graph["iter"] += 1
 
     except (IndexError, KeyboardInterrupt):
         pass
