@@ -11,6 +11,9 @@ class Coroutine(Thread):
 
     nothing: object = object()  # a sentinel object
 
+    class OutOfSequenceError(RuntimeError):
+        pass
+
     def __init__(self, target, name=None, args=(), kwargs=None, daemon=None):
         super().__init__(None, target, name, args, kwargs, daemon=daemon)
 
@@ -18,33 +21,28 @@ class Coroutine(Thread):
         # """All methods of `Lock` are executed atomically."""
         # https://docs.python.org/3/library/threading.html#lock-objects
         self.cv = Condition(Lock())
-        self.exception_, self.value_ = self.nothing, self.nothing
+        self.exception_, self.value_ = None, self.nothing
         self.co_is_running, self.co_is_suspended = False, False
-        self.co_is_finished = False
+        self.co_has_started, self.co_is_finished = False, False
 
-    def maybe_raise(self, co: bool) -> ...:
+    def maybe_raise(self, clear: bool) -> ...:
         """Either return the value of raise the pending exception."""
         try:
-            if self.exception_ is not self.nothing:
-                assert co or self.co_is_finished
+            if self.exception_ is not None:
                 raise self.exception_
 
-            if not co and self.co_is_finished:
-                raise StopIteration
+            if self.value_ is not self.nothing:
+                return self.value_
 
-            assert self.value_ is not self.nothing
-            return self.value_
+            raise RuntimeError
 
         finally:
-            # reset the value and the exception
-            # self.exception_, self.value_ = self.nothing, self.nothing
+            # reset the value, but not the exception, unless in their thread.
+            #  This can be used to tell if the exception at `.wait` originated
+            #  from `co_raise` or from elsewhere.
             self.value_ = self.nothing
-            if co:
-                # we threw at them, so when they handle the exception it must
-                #  be cleared. If the exception originated from them, then
-                #  we do not clear it. On our side it would also be clear
-                #  if the exception was an interrupt
-                self.exception_ = self.nothing
+            if clear:
+                self.exception_ = None
 
     def co_enter(self) -> bool:
         """Wait until our time-slice signal then suspend `.acquire` in their
@@ -62,7 +60,7 @@ class Coroutine(Thread):
 
     def co_yield(self, value: ... = None, stall: float = 0.0) -> ...:
         """Unsuspend them at `.wait`, wait for their `.resume`"""
-        self.exception_, self.value_ = self.nothing, value
+        self.exception_, self.value_ = None, value
         self.co_leave()
 
         if stall > 0:
@@ -71,12 +69,16 @@ class Coroutine(Thread):
         self.co_enter()
         return self.maybe_raise(True)
 
-    def co_raise(self, value: BaseException) -> None:
+    def co_raise(self, exception: BaseException) -> None:
         """Raise an exception at `.wait`"""
+        # ignore subsequent calls to co-raise
+        if self.co_is_finished:
+            return
+
         self.co_is_finished = True
-        # XXX if they raise at us, then they are sure that they cannot continue
-        #  otherwise they wouldn't have raised at us in the first place.
-        self.exception_, self.value_ = value, self.nothing
+        # XXX if we raise at them, then we are sure that we cannot continue
+        #  otherwise we wouldn't have raised at them in the first place.
+        self.exception_, self.value_ = exception, self.nothing
         self.co_leave()
 
     def co_return(self, value: ... = None) -> None:
@@ -85,7 +87,7 @@ class Coroutine(Thread):
         return self.co_raise(exception)
 
     def run(self):
-        self.co_is_running = True
+        self.co_has_started = self.co_is_running = True
         try:
             self.co_enter()
             self.co_return(self._target(*self._args, **self._kwargs))
@@ -101,10 +103,12 @@ class Coroutine(Thread):
         thread until `.release` in our thread.
         """
         # XXX `.acquire` is followed by `.release` in our thread
-        assert not self.co_is_suspended
+        if self.co_is_suspended:
+            raise self.OutOfSequenceError()
 
-        self.co_is_suspended = self.cv.acquire()  # atomic, but can be interrupted
-        self.cv.wait_for(lambda: not self.co_is_running)
+        self.co_is_suspended = self.cv.acquire()  # atomic, but wait can be interrupted
+        if not self.co_is_finished:
+            self.cv.wait_for(lambda: not self.co_is_running)
         # XXX `co_is_suspended` can end up being False only if `.acquire`
         # in `.enter` were interrupted, but never when `.wait_for`
 
@@ -125,28 +129,48 @@ class Coroutine(Thread):
     def wait(self) -> ...:
         """Wait for their `.co_yield`."""
         # abort, if they have not started (we use Thread's private flag)
-        # if not self._started.is_set():
-        #     raise RuntimeError
+        if not self.co_has_started:
+            raise self.OutOfSequenceError("Call `.start` to launch the coroutine.")
 
         # If we own the time-slice, then we know that they are inside `co_yield
         #  and are blocked. if they own, then we block only if we need the
         #  time-slice.
         self.enter()
-        return self.maybe_raise(False)
+        if not self.co_is_finished:
+            return self.maybe_raise(False)
+
+        # when `co_is_finished` the `exception_` is never None
+        try:
+            raise self.exception_
+
+        finally:
+            self.exception_ = StopIteration
 
     def resume(self, value: ... = None) -> None:
         """Resume them inside `.co_yield`"""
-        self.exception_, self.value_ = self.nothing, value
+        if not self.co_is_suspended:
+            raise self.OutOfSequenceError("`.resume` must be preceded by `.wait`")
+
+        if not self.co_is_finished:
+            self.exception_, self.value_ = None, value
+
         self.leave()
 
-    def throw(self, value: BaseException) -> None:
+    def throw(self, exception: BaseException) -> None:
         """Raise an exception from `.co_yield`"""
-        # loop back if they do not exist anymore
-        if self.co_is_finished:
-            raise value
+        # XXX check exc type?
+        if not self.co_is_suspended:
+            raise self.OutOfSequenceError(".`throw` must be preceded by `.wait`")
 
-        self.exception_, self.value_ = value, self.nothing
-        self.leave()
+        try:
+            # loop back if they do not exist anymore
+            if self.co_is_finished:
+                raise exception
+
+            self.exception_, self.value_ = exception, self.nothing
+
+        finally:
+            self.leave()
 
     def close(self):
         # nothing to close, if the coro hasn't started, or if it has already
@@ -181,19 +205,12 @@ class Coroutine(Thread):
             self.start()
             while True:
                 try:
-                    request = self.wait()
+                    response = yield self.wait()
 
                 except BaseException as e:
-                    if self.exception_ is not self.nothing:
+                    if self.exception_ is not None:
                         raise
 
-                    self.throw(e)
-                    continue
-
-                try:
-                    response = yield request
-
-                except BaseException as e:
                     self.throw(e)
 
                 else:
