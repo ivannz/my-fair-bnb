@@ -155,3 +155,24 @@ class Coroutine(Thread):
             self.join()
 
         assert self.is_suspended
+
+    def __iter__(self) -> ...:
+        """A generator interface for the coroutine."""
+        try:
+            self.start()
+            while True:
+                request = self.wait()
+                try:
+                    response = yield request
+
+                except BaseException as e:
+                    self.throw(e)
+
+                else:
+                    self.resume(response)
+
+        except StopIteration as e:
+            return e.value
+
+        finally:
+            self.close()
