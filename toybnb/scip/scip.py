@@ -104,14 +104,14 @@ def get_result(m: Model) -> OptimizeResult:
     )
 
 
-def from_scip(m: Model) -> MILP:
+def from_scip(m: Model, trans: bool = False, genericnames: bool = False) -> MILP:
     import os
     from tempfile import mkstemp
 
     """Convert a SCIP MILP model into out own MILP by parsinga CIP file."""
     try:
         fd, cip = mkstemp(suffix=".cip")
-        m.writeProblem(cip, False, False)
+        m.writeProblem(cip, trans, genericnames)
         return from_cip(cip)
 
     finally:
