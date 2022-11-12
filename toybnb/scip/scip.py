@@ -123,8 +123,16 @@ def from_scip(
             os.unlink(cip)
 
 
-def from_scip_lp(m: Model) -> MILP:
+def from_scip_lp(m: Model, *, safe: bool = True) -> MILP:
     """Read SCIP's current LP problem into MILP."""
+    from pyscipopt import SCIP_STAGE
+
+    # it appears that pyscipopt can't read lp data if the state is too early
+    if safe and m.getStage() < SCIP_STAGE.SOLVING:
+        raise RuntimeError(
+            "Avoiding segfault from a SCIP model, which is not at SOLVING stage"
+        )
+
     v_int, v_con = [], []
     for col in m.getLPColsData():
         type = col.getVar().vtype().lower()
