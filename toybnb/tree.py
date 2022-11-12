@@ -238,7 +238,7 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
 
     # get the correct state and compute the fractional mask
     if lp.success:
-        fractional = np.packbits(~is_feasible_int(lp.x, p))
+        fractional = np.packbits(~is_feasible_int(lp.x, p), bitorder="little")
         if fractional.any():
             # If a MILP sub-problem has an integer-INfeasible lp solution, then
             #  its feasibility region has to be searched further
