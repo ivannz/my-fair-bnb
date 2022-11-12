@@ -104,16 +104,87 @@ def get_result(m: Model) -> OptimizeResult:
     )
 
 
-def from_scip(m: Model, trans: bool = False, genericnames: bool = False) -> MILP:
+def from_scip(
+    m: Model, trans: bool = False, genericnames: bool = False, *, dir: str = None
+) -> MILP:
     import os
     from tempfile import mkstemp
 
     """Convert a SCIP MILP model into out own MILP by parsinga CIP file."""
     try:
-        fd, cip = mkstemp(suffix=".cip")
+        fd, cip = mkstemp(suffix=".cip", dir=dir)
+        os.close(fd)
+
         m.writeProblem(cip, trans, genericnames)
         return from_cip(cip)
 
     finally:
-        os.close(fd)
-        os.unlink(cip)
+        if dir is None:
+            os.unlink(cip)
+
+
+def from_scip_lp(m: Model) -> MILP:
+    """Read SCIP's current LP problem into MILP."""
+    v_int, v_con = [], []
+    for col in m.getLPColsData():
+        type = col.getVar().vtype().lower()
+        if type not in ("binary", "integer", "continuous"):
+            raise NotImplementedError(type)
+
+        which = v_int if type in ("binary", "integer") else v_con
+        which.append(col.getLPPos())
+
+    # assign correct indices
+    lut = {v: j for j, v in enumerate(v_int + v_con)}
+
+    # get the constraint data
+    tab_ub, b_ub = defaultdict(float), []
+    tab_eq, b_eq = defaultdict(float), []
+    for row in m.getLPRowsData():
+        lb, ub, c0 = row.getLhs(), row.getRhs(), row.getConstant()
+        if not m.isEQ(lb, ub):
+            if not m.isInfinity(abs(ub)):
+                # c_0 + a^\top x \leq u
+                for c, v in zip(row.getCols(), row.getVals()):
+                    tab_ub[len(b_ub), c.getLPPos()] += v
+                b_ub.append(ub - c0)
+
+            if not m.isInfinity(abs(lb)):
+                # l \leq c_0 + a^\top x
+                for c, v in zip(row.getCols(), row.getVals()):
+                    tab_ub[len(b_ub), c.getLPPos()] -= v
+                b_ub.append(c0 - lb)
+        else:
+            # u \leq c_0 + a^\top x \leq u
+            for c, v in zip(row.getCols(), row.getVals()):
+                tab_eq[len(b_eq), c.getLPPos()] += v
+            b_eq.append(ub - c0)
+
+    b_ub = np.array(b_ub)
+    A_ub = sp.lil_array((len(b_ub), m.getNLPCols()), dtype=float)
+    for (i, j), v in tab_ub.items():
+        A_ub[i, lut[j]] = v
+
+    b_eq = np.array(b_eq)
+    A_eq = sp.lil_array((len(b_eq), m.getNLPCols()), dtype=float)
+    for (i, j), v in tab_eq.items():
+        A_ub[i, lut[j]] = v
+
+    # get the objective data and bounds
+    c = np.full(m.getNLPCols(), np.nan)
+    bounds = np.full((m.getNLPCols(), 2), (-np.inf, +np.inf))
+    for col in m.getLPColsData():
+        j = lut[col.getLPPos()]
+        c[j] = col.getObjCoeff()
+        bounds[j] = col.getLb(), col.getUb()
+
+    return MILP(
+        c,
+        A_ub.tocsr(),
+        b_ub,
+        A_eq.tocsr(),
+        b_eq,
+        bounds,
+        len(v_int) + len(v_con),
+        len(v_int),
+    )
