@@ -8,6 +8,17 @@ from numpy.random import default_rng
 from collections import namedtuple
 
 MILP = namedtuple("MILP", "c,A_ub,b_ub,A_eq,b_eq,bounds,n,m,c0")
+empty = MILP(
+    c=np.empty(0),
+    A_ub=np.empty((0, 0)),
+    b_ub=np.empty(0),
+    A_eq=np.empty((0, 0)),
+    b_eq=np.empty(0),
+    bounds=np.empty((0, 2)),
+    n=0,
+    m=0,
+    c0=np.inf,
+)
 
 
 def generate(n: int, m: int, r: int, *, seed: int = None) -> MILP:
@@ -136,6 +147,9 @@ def is_feasible_int(
     x: ndarray, p: MILP, rtol: float = 1e-5, atol: float = 1e-8
 ) -> ndarray:
     """Check integer feasibility."""
+    if len(x) != p.n:
+        raise ValueError(f"Invalid shape for `x`: {x.shape} != ({p.n},)")
+
     # test integrality of all variables, then force continuous to True
     # np.isclose(x.round(), x, rtol, atol)
     feasible = abs(x.round() - x) <= atol
