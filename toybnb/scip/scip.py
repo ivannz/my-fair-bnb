@@ -196,4 +196,5 @@ def from_scip_lp(m: Model, *, safe: bool = True) -> MILP:
         bounds,
         len(v_int) + len(v_con),
         len(v_int),
+        c0,
     )

@@ -237,4 +237,4 @@ def from_cip(filename: str) -> MILP:
         c *= -1
         c0 = -c0
 
-    return MILP(c, A_ub.tocsr(), b_ub, A_eq.tocsr(), b_eq, bounds, n, m)
+    return MILP(c, A_ub.tocsr(), b_ub, A_eq.tocsr(), b_eq, bounds, n, m, c0)

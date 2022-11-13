@@ -7,7 +7,7 @@ import networkx as nx
 from numpy.random import default_rng
 from collections import namedtuple
 
-MILP = namedtuple("MILP", "c,A_ub,b_ub,A_eq,b_eq,bounds,n,m")
+MILP = namedtuple("MILP", "c,A_ub,b_ub,A_eq,b_eq,bounds,n,m,c0")
 
 
 def generate(n: int, m: int, r: int, *, seed: int = None) -> MILP:
@@ -45,7 +45,7 @@ def generate(n: int, m: int, r: int, *, seed: int = None) -> MILP:
 
         # cost
         c = rng.normal(size=n)
-        yield MILP(c, A_ub.T.copy(), b_ub, A_eq, b_eq, bounds, n, m)
+        yield MILP(c, A_ub.T.copy(), b_ub, A_eq, b_eq, bounds, n, m, 0.0)
 
 
 def incidence(G: nx.Graph) -> sp.coo_matrix:
@@ -87,7 +87,7 @@ def generate_mis_ba(n: int = 400, m: int = 4, seed: int = None) -> MILP:
         A_eq = np.empty((0, n))
         b_eq = np.empty((0,))
 
-        yield MILP(c, A_ub, b_ub, A_eq, b_eq, nilone, n, n)
+        yield MILP(c, A_ub, b_ub, A_eq, b_eq, nilone, n, n, 0.0)
 
 
 def is_feasible_box(

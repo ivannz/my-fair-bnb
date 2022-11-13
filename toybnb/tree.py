@@ -49,7 +49,7 @@ def lpsolve(p: MILP) -> OptimizeResult:
     #  see [_clean_inputs](scipy/optimize/_linprog_util.py#L390-452)
     lp = linprog(p.c, p.A_ub, p.b_ub, p.A_eq, p.b_eq, p.bounds, method="highs")
     if lp.success:
-        # `.x` is $x^*$ the solution and `.fun` is $c^\top x^*$
+        # `.x` is $x^*$ the solution and `.fun` is $c^\top x^*$ without `c0`
         return build_optresult(**lp)
 
     # the data in OptimizeResult in case of an error status varies depending
