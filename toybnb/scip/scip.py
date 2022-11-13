@@ -179,6 +179,7 @@ def from_scip_lp(m: Model, *, safe: bool = True) -> MILP:
         A_ub[i, lut[j]] = v
 
     # get the objective data and bounds
+    c0 = m.getObjoffset()
     c = np.full(m.getNLPCols(), np.nan)
     bounds = np.full((m.getNLPCols(), 2), (-np.inf, +np.inf))
     for col in m.getLPColsData():

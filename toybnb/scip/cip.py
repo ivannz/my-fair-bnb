@@ -180,7 +180,7 @@ def parse_cip(filename: str) -> tuple[str, str, dict, dict]:
 
 def from_cip(filename: str) -> MILP:
     # we don't care about the offset
-    name, (sense, _), m_vars, m_cons = parse_cip(filename)
+    name, (sense, c0), m_vars, m_cons = parse_cip(filename)
 
     # split the vars in two groups: integer and continuous
     v_int, v_con = [], []
@@ -235,5 +235,6 @@ def from_cip(filename: str) -> MILP:
     # flip the cost vector if the problem is maximization
     if sense == "max":
         c *= -1
+        c0 = -c0
 
     return MILP(c, A_ub.tocsr(), b_ub, A_eq.tocsr(), b_eq, bounds, n, m)
