@@ -1,5 +1,5 @@
 import networkx as nx
-from pyscipopt import scip
+from pyscipopt import scip, SCIP_STAGE
 
 from operator import lt, gt
 from itertools import chain
@@ -40,7 +40,7 @@ class SCIPTreeTracer:
         self.trace_ = []
 
     def update(self, m: scip.Model) -> None:
-        assert isinstance(m, scip.Model)
+        assert isinstance(m, scip.Model) and m.getStage() >= SCIP_STAGE.SOLVING
 
         # XXX do not store pointers to nodes!
         primalbound = m.getPrimalbound()
