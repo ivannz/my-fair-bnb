@@ -292,6 +292,9 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
     # XXX isn't this bound obtained right at the root by construction?
     if dual.val > G.graph["dual_bound"].val:
         G.graph["dual_bound"] = dual
+    # XXX the proper dual bound is be the worst (lowest) relaxed lp value
+    #  among the currently OPEN nodes. The gap shoud be computed against
+    #  such lower bound.
 
     # the `duals` heap tracks only those nodes, the MILP sub-problem of which
     #  still needs their sub-tree explored.
