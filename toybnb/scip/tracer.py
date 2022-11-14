@@ -286,9 +286,11 @@ class Tracer:
         # XXX [addCurrentSolution](solve.c#5039) the integer-feasible solution
         #  is added after the focus node is processed [solveNode](solve.c#4982).
         #  [primalAddSol](primal.c#1064)
-        lp = get_sol_result(m, m.getSols()[0])
-        if self.is_worse(self.T.graph["incumbent"].fun, lp.fun):
-            self.T.graph["incumbent"] = lp
+        sols = m.getSols()
+        if sols:
+            lp = get_sol_result(m, sols[0])
+            if self.is_worse(self.T.graph["incumbent"].fun, lp.fun):
+                self.T.graph["incumbent"] = lp
 
         self.prune()
 
