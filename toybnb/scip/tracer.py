@@ -228,7 +228,11 @@ class Tracer:
         while self.duals_ and (self.T.graph["incumbent"].fun < -self.duals_[0].val):
             node = heappop(self.duals_).node
 
-            assert nodes[node]["status"] in (Status.OPEN, Status.CLOSED)
+            assert nodes[node]["status"] in (
+                Status.OPEN,
+                Status.CLOSED,
+                Status.FATHOMED,  # XXX allow shadow-visited nodes
+            )
             nodes[node]["status"] = Status.PRUNED
 
     def add_frontier(self, m: Model) -> set:
