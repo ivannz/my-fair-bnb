@@ -3,13 +3,28 @@ from scipy import sparse as sp
 from collections import defaultdict
 
 from scipy.optimize import OptimizeResult
-from pyscipopt import Model, quicksum, SCIP_STATUS
+from pyscipopt import Model, quicksum
+from pyscipopt import SCIP_STAGE, SCIP_STATUS
+from pyscipopt.scip import PY_SCIP_LPSOLSTAT as SCIP_LPSOLSTAT
 
 from .cip import from_cip
 from ..milp import MILP
 
+# remap SCIP_LPSOLSTAT to scipy's status codes
+# 0 success, 1 iteration/time limit, 2 infeasible, 3 unbounded, 4 other
+SCIP_LPSOLSTAT_TO_NUMERIC = {
+    SCIP_LPSOLSTAT.NOTSOLVED: 4,
+    SCIP_LPSOLSTAT.OPTIMAL: 0,
+    SCIP_LPSOLSTAT.ITERLIMIT: 1,
+    SCIP_LPSOLSTAT.TIMELIMIT: 1,
+    SCIP_LPSOLSTAT.INFEASIBLE: 2,
+    SCIP_LPSOLSTAT.UNBOUNDEDRAY: 3,
+    SCIP_LPSOLSTAT.OBJLIMIT: 4,
+    SCIP_LPSOLSTAT.ERROR: 4,
+}
 
-TO_NUMERIC_STATUS = {
+
+STATUS_TO_NUMERIC = {
     "optimal": SCIP_STATUS.OPTIMAL,
     "infeasible": SCIP_STATUS.INFEASIBLE,
     "unbounded": SCIP_STATUS.UNBOUNDED,
@@ -93,7 +108,7 @@ def get_result(m: Model) -> OptimizeResult:
         x[k] = v
 
     message = m.getStatus()
-    status = TO_NUMERIC_STATUS[message]
+    status = STATUS_TO_NUMERIC[message]
     return OptimizeResult(
         x=x,
         fun=m.getObjVal(),
@@ -125,8 +140,6 @@ def from_scip(
 
 def from_scip_lp(m: Model, *, safe: bool = True) -> MILP:
     """Read SCIP's current LP problem into MILP."""
-    from pyscipopt import SCIP_STAGE
-
     # it appears that pyscipopt can't read lp data if the state is too early
     if safe and m.getStage() < SCIP_STAGE.SOLVING:
         raise RuntimeError(
