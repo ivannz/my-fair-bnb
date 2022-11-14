@@ -133,36 +133,47 @@ class Status(Enum):
         current global incumbent solution. The node still has some branching
         options left to explore. OPEN nodes may ARBITRARILY change their status
         to CLOSED or PRUNED.
+
     CLOSED:
         All branching options offered by this node have been exhausted, but its
         sub-tree has not necessarily been fathomed. A CLOSED node may only
         change its status to PRUNED.
+
     PRUNED:
         The node had to be eliminated due to certifiable sub-optimality. During
         the search a non overlapping sub-problem produced an integer-feasible
         solution with a LOWER objective value, than this node's lp relaxation,
         which, by design, bounds any integer-feasible solution in its region.
         A PRUNED node MUST stay pruned forever.
+
     FEASIBLE:
         The lp relaxation of the node's sub-problem is integer-feasible and
         optimal, hence there is no reason to dive into its sub-tree. The branch
         is fathomed.
+
         A FEASIBLE node may only change its status to PRUNED. Feasible nodes can
         reside in a pruned branch, in which case it is also considered pruned.
+
     INFEASIBLE:
         The relaxed lp has a degenerate feasibility region, meaning that node's
         the MILP sub-problem is infeasible. Again, the sub-tree is fathomed.
         An INFEASIBLE node never changes its status.
 
+    FATHOMED:
+        A node whose sub-tree was fathomed by means other than pruning, or
+        solving. Technically encompasses PRUNED, FEASIBLE, INFEASIBLE state,
+        but not used by the algorithm in `.search` and in `.tree`. Reserved
+        for future extensions.
+
     Closed nodes
     ------------
     If the node's lp solution is integer infeasible, then the subset of the
     node's feasibility region NOT COVERED by any axis-aligned binary split on
-    fractional variables is excluded from all sub-problems in the sub-tree. This
-    region is an open rectangle, possibly unbounded, with at least one side
-    being an open interval between CONSECUTIVE integers. Thus, this region can
-    be safely excluded from consideration, since is cannot contain any integer
-    feasible solutions to the node's problem.
+    fractional variables is excluded from all sub-problems in the sub-tree.
+    This region is an open rectangle, possibly unbounded, with at least one
+    side being an open interval between CONSECUTIVE integers. Thus, this region
+    can be safely excluded from consideration, since is cannot contain any
+    integer feasible solutions to the node's problem.
 
     A sub-problem in a partition of a binary split either may be immediately
     infeasible (empty feasibility set), or may have produced an integer feasible
@@ -175,8 +186,8 @@ class Status(Enum):
     explored. For example, it is possible that an OPEN node while still siting
     in the `duals` heap with lp dual < primal, may in the same iteration change
     its status to CLOSED, have one immediate integer-feasible child improve
-    the incumbent, making the node eligible for pruning, yet have another child
-    completely unfathomed.
+    the incumbent, making the node eligible for pruning, yet have another
+    child completely unfathomed.
 
     Solution for the node's integer sub-problem
     -------------------------------------------
@@ -185,11 +196,13 @@ class Status(Enum):
     """
 
     OPEN = 0
-    CLOSED = 5
+    CLOSED = 4
 
     PRUNED = 1
     FEASIBLE = 2
     INFEASIBLE = 3
+
+    FATHOMED = -1
 
 
 DualBound = namedtuple("DualBound", "val,node")
