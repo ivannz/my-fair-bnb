@@ -69,7 +69,7 @@ class Tracer:
         inc = build_optresult(x={}, fun=val, nit=-1, status=0)
 
         self.duals_, self.trace_, self.focus_, self.nit_ = [], [], None, 0
-        self.frontier_, self.fathomed_ = set(), set()
+        self.shadow_, self.frontier_, self.fathomed_ = None, set(), set()
         self.T = nx.DiGraph(root=None, incumbent=inc)
 
     def add_lineage(self, m: Model, n: Node) -> int:
@@ -168,6 +168,15 @@ class Tracer:
         #  frontier node, and bnb does not revisit nodes
         assert n.getType() == SCIP_NODETYPE.FOCUSNODE
 
+        # if we're visiting a former child/sibling/leaf make sure it is OPEN,
+        #  and not shadow visited by SCIP, i.e. FATHOMED.
+        if n.getParent() is not None and n.getNumber() in self.T:
+            j = n.getNumber()
+            if self.T.nodes[j]["status"] != Status.OPEN:
+                raise NotImplementedError(
+                    f"SCIP should not focus on non-open nodes. Got `{j}`."
+                )
+
         # add the node to the tree and recover its LP solution
         # XXX SCIP guarantees that a node's number uniquely identifies a search
         #  node, even those whose memory SCIP reclaimed
@@ -176,7 +185,7 @@ class Tracer:
         # the root may get visited twice
         if n.getParent() is not None and self.T.nodes[j]["n_visits"] > 0:
             raise NotImplementedError(
-                "SCIP should not revisit nodes, other than the root. Got `{j}`."
+                f"SCIP should not revisit nodes, other than the root. Got `{j}`."
             )
 
         # Extract the local LP solution at the focus node
@@ -315,7 +324,8 @@ class Tracer:
         #  branchrule is not called when SCIP's LP solver detected integer feasibility
         #  or overall infeasibility. A good thing is that such nodes were open in
         #  the past, so we must recompute their fate.
-        self.fathomed_.update(self.add_frontier(m))
+        self.shadow_ = shadow = self.add_frontier(m)
+        self.fathomed_.update(shadow)
 
 
 class TracedBranching(Branching):
