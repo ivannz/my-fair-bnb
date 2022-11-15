@@ -69,12 +69,13 @@ def search(
     track = tree.graph["track"]
     duals = tree.graph["duals"]
     try:
+        pbar = tqdm(count(), ncols=70, disable=verbose < 1)
+
         # create the root node
         tree.graph["root"] = bnb.add(tree, p, depth=0)
         reschedule = [tree.graph["root"]]
 
         # start the bnb loop
-        pbar = tqdm(count(), ncols=70, disable=verbose < 1)
         for j in pbar:
             # monitor bnb search progress
             f_gap = bnb.gap(tree)
