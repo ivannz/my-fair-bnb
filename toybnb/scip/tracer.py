@@ -75,15 +75,16 @@ class Tracer:
     def add_lineage(self, m: Model, n: Node) -> int:
         """Add node's representation to the tree and ensure its lineage exists."""
         assert isinstance(n, Node)
-        assert n.getType() in (
+        if n.getType() not in (
             SCIP_NODETYPE.SIBLING,
             SCIP_NODETYPE.CHILD,
             SCIP_NODETYPE.LEAF,
             SCIP_NODETYPE.FOCUSNODE,
-        )
+        ):
+            raise NotImplementedError
 
-        # keep adding uninitialized nodes along the lineage
-        #  until we find an ancestor, whci is already recored
+        # keep adding uninitialized nodes along the lineage until we find an
+        #  ancestor, which is already recorded
         j = v = int(n.getNumber())
         in_tree = v in self.T
         while not in_tree:
@@ -117,7 +118,7 @@ class Tracer:
                 SCIP_NODETYPE.SUBROOT,
                 SCIP_NODETYPE.JUNCTION,
             ):
-                raise RuntimeError
+                raise NotImplementedError
 
             # try not to re-add the parent nodes on the next iteration
             u = int(p.getNumber())
@@ -145,7 +146,7 @@ class Tracer:
                     SCIP_NODETYPE.FOCUSNODE,
                     SCIP_NODETYPE.FORK,
                 ):
-                    raise RuntimeError
+                    raise NotImplementedError
 
             self.T.nodes[v]["type"] = n.getType()
             n = n.getParent()
@@ -154,6 +155,11 @@ class Tracer:
 
     def enter(self, m: Model) -> int:
         """Begin processing the focus node at the current branching point."""
+
+        # get the focus node
+        # XXX We neither borrow nor own any `scip.Node` objects, but we are
+        #  guaranteed that `n` references a valid focus node at least for the
+        #  duration of the current branching call
         n: Node = m.getCurrentNode()
         assert isinstance(n, Node)
 
@@ -163,11 +169,15 @@ class Tracer:
         assert n.getType() == SCIP_NODETYPE.FOCUSNODE
 
         # add the node to the tree and recover its LP solution
-        j = self.focus_ = self.add_lineage(m, m.getCurrentNode())  # OPEN
+        # XXX SCIP guarantees that a node's number uniquely identifies a search
+        #  node, even those whose memory SCIP reclaimed
+        j = self.focus_ = self.add_lineage(m, n)  # OPEN
 
         # the root may get visited twice
         if n.getParent() is not None and self.T.nodes[j]["n_visits"] > 0:
-            raise RuntimeError
+            raise NotImplementedError(
+                "SCIP should not revisit nodes, other than the root. Got `{j}`."
+            )
 
         # Extract the local LP solution at the focus node
         trans = True
@@ -239,6 +249,8 @@ class Tracer:
         """Update the set of tracked open nodes and figure out shadow-visited ones."""
 
         # ensure all currently open nodes from SCIP are reflected in the tree
+        # XXX [xternal.c](scip-8.0.1/doc/xternal.c#L3668-3686) implies that the
+        #  other getBest* methods pick nodes from the open (unprocessed) frontier
         new_frontier = set()
         for n in chain(*m.getOpenNodes()):
             in_tree = int(n.getNumber()) in self.T
@@ -270,6 +282,7 @@ class Tracer:
         if self.focus_ is not None:
             self.leave(m)
 
+        # start processing the current focus node, unless the search has finished
         if m.getCurrentNode() is not None:
             j = self.enter(m)
 
