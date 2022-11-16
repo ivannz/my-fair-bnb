@@ -29,11 +29,18 @@ def nodesel_dfs(G: nx.DiGraph, *reschedule: int) -> int:
     """
     dq, nodes = G.graph["queue"], G.nodes
     for node in reschedule:
-        # a rescheduled node may be FEASIBLE, INFEASIBLE, OPEN, or even PRUNED,
-        #  e.g. when a child of a still OPEN node improved the incumbent
+        # a rescheduled node may be FEASIBLE, INFEASIBLE, OPEN, or PRUNED
         assert nodes[node]["status"] != Status.CLOSED
+        # XXX `reschedule` contains the just visited node and its children
+        #  created by branching. These cannot be CLOSED nodes: either OPEN
+        #  with branching options left, as determined by the `branchrule`
+        #  __not__ raising IndexError, FEASIBLE or INFEASIBLE children or
+        #  even PRUNED. The child cannot prune its parent, but can affect
+        #  its sibling: the incumbent is lower bounded by the child's and
+        #  the parent's relaxed lp bounds, but the sibling's lp bound came
+        #  out too high.
 
-        # We schedule only OPEN nodes
+        # we schedule only OPEN nodes
         if nodes[node]["status"] == Status.OPEN:
             dq.append(node)
 
@@ -91,20 +98,14 @@ def search(
             if f_gap <= gap or len(tree) > n_nodes:
                 break
 
-            # get the next OPEN node to visit
-            # XXX raises IndexError, if no node can be selected
+            # `nodesel` gets the next OPEN node to visit, or raises IndexError
             node = nodesel(tree, *reschedule)
             reschedule.clear()
 
-            # the node's lp solution is integer infeasible, and it might have
-            #  branching options left -- add it to the track anyway
+            # the picked node's lp solution is expected to be integer-infeasible,
+            #  and still have branching options left, i.e. OPEN.
             data = nodes[node]
             assert data["status"] == Status.OPEN
-            track.append((node, tree.graph["incumbent"].fun, data["lp"].fun))
-            # XXX the track NEVER contains any INFEASIBLE nodes: it may have
-            #  OPEN nodes, if early stopped, PRUNED nodes, with dual > primal,
-            #  and CLOSED nodes. Due to the above assert it may not contain
-            #  FEASIBLE nodes, although the `nodesel` could return such nodes.
 
             # try branching at the node, marking is CLOSED if impossible
             try:
@@ -117,6 +118,11 @@ def search(
                 children = bnb.branch(tree, node, j)
                 reschedule.append(node)
                 reschedule.extend(children)
+
+                # add the focus node to the track after a successful branching
+                track.append((node, tree.graph["incumbent"].fun, data["lp"].fun))
+                # XXX the track may only have OPEN nodes, CLOSED nodes, or
+                #  PRUNED nodes when lp bound > primal evantually
 
             except IndexError:
                 # mark the node as CLOSED, since no variable can be branched on
