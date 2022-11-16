@@ -304,6 +304,10 @@ class Tracer:
                 )
             )
 
+        else:
+            # clear the focus node when SCIP terminates the bnb search
+            self.focus_ = None
+
         # track the best sol maintained by SCIP
         # XXX While processing branching takes place at [SCIPbranchExecLP](solve.c#4420)
         # Therefore, the current best, if it has been updated, should be attributed
