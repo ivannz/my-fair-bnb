@@ -1,8 +1,5 @@
 import networkx as nx
 
-import numpy as np
-from numpy.random import default_rng
-
 from tqdm import tqdm
 from itertools import count
 
@@ -64,7 +61,6 @@ def search(
     *,
     gap: float = 0.0,
     n_nodes: float = None,
-    seed: int = None,
     verbose: int = 0,
 ) -> nx.DiGraph:
     """Poor-man's branch and bound algorithm."""
@@ -75,27 +71,19 @@ def search(
         p,
         # the root node is unlikely to be anything other than zero
         root=None,
-        # the queue for sub-problem prioritization
-        queue=[],  # deque([]),
-        # the path taken through the search tree [(node, primal, dual)]
-        track=[],
         # the total number of bnb loop iterations
         iter=0,
-        # own random number generator for tie resolution
-        rng=default_rng(seed),
-        # statistics for variable pseudocosts
-        pseudocosts=dict(
-            lo=np.zeros(p.n),
-            hi=np.zeros(p.n),
-            n=np.zeros(p.n, int),
-        ),
+        # the path taken through the search tree [(node, primal, dual)]
+        track=[],
+        # the queue for sub-problem prioritization
+        queue=[],  # deque([]),
     )
 
     # localize certain variables
-    queue = tree.graph["queue"]
     nodes = tree.nodes
-    track = tree.graph["track"]
     duals = tree.graph["duals"]
+    track = tree.graph["track"]
+    queue = tree.graph["queue"]
     try:
         pbar = tqdm(count(), ncols=70, disable=verbose < 1)
 
