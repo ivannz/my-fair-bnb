@@ -8,13 +8,13 @@ from .milp import MILP
 from .tree import Status
 
 
-def nodesel_dfs(G: nx.DiGraph, *reschedule: int) -> int:
+def nodesel_dfs(T: nx.DiGraph, *reschedule: int) -> int:
     """A simple node selector which prioritizes depth.
 
     Parameters
     ----------
-    G: nx.DiGraph
-        The  bnb search tree.
+    T: nx.DiGraph
+        The bnb search tree.
 
     reschedule: int
         The list of nodes to put back into the queue. It is either empty, or
@@ -27,7 +27,7 @@ def nodesel_dfs(G: nx.DiGraph, *reschedule: int) -> int:
         The next OPEN node to visit. The `IndexError` is raised if nothing
         can be proposed.
     """
-    dq, nodes = G.graph["queue"], G.nodes
+    dq, nodes = T.graph["queue"], T.nodes
     for node in reschedule:
         # a rescheduled node may be FEASIBLE, INFEASIBLE, OPEN, or PRUNED
         assert nodes[node]["status"] != Status.CLOSED
@@ -67,7 +67,7 @@ def search(
     n_nodes = float("inf") if n_nodes is None else n_nodes
 
     # initialize the bnb tree
-    tree = bnb.init(
+    T = bnb.init(
         p,
         # the root node is unlikely to be anything other than zero
         root=None,
@@ -80,21 +80,21 @@ def search(
     )
 
     # localize certain variables
-    nodes = tree.nodes
-    duals = tree.graph["duals"]
-    track = tree.graph["track"]
-    queue = tree.graph["queue"]
+    nodes = T.nodes
+    duals = T.graph["duals"]
+    track = T.graph["track"]
+    queue = T.graph["queue"]
     try:
         pbar = tqdm(count(), ncols=70, disable=verbose < 1)
 
         # create the root node
-        tree.graph["root"], _ = bnb.add(tree, p, depth=0)
-        reschedule = [tree.graph["root"]]
+        T.graph["root"], _ = bnb.add(T, p, depth=0)
+        reschedule = [T.graph["root"]]
 
         # start the bnb loop
         for j in pbar:
             # monitor bnb search progress
-            f_gap = bnb.gap(tree)
+            f_gap = bnb.gap(T)
             if verbose > 0:
                 pbar.set_postfix_str(f"rtol {f_gap:.4%} {len(duals)} {len(queue)}")
 
@@ -104,11 +104,11 @@ def search(
             #  separation of responsibilites, on the other hand, nodsel has
             #  more power: it selects nodes or quits. The nature of termination
             #  is different, though.
-            if f_gap <= gap or len(tree) > n_nodes:
+            if f_gap <= gap or len(T) > n_nodes:
                 break
 
             # `nodesel` gets the next OPEN node to visit, or raises IndexError
-            node = nodesel(tree, *reschedule)
+            node = nodesel(T, *reschedule)
             reschedule.clear()
 
             # the picked node's lp solution is expected to be integer-infeasible,
@@ -120,16 +120,16 @@ def search(
             try:
                 # pick a branching rule and with it a variable for branching
                 # XXX this should raise IndexError if no variable can be picked
-                j = branchrule(tree, node)
+                j = branchrule(T, node)
 
                 # sprout and schedule the shoots, and reschedule the node
                 #  itself, since it may have other variables to explore
-                children = bnb.branch(tree, node, j)
+                children = bnb.branch(T, node, j)
                 reschedule.append(node)
                 reschedule.extend(children)
 
                 # add the focus node to the track after a successful branching
-                track.append((node, tree.graph["incumbent"].fun, data["lp"].fun))
+                track.append((node, T.graph["incumbent"].fun, data["lp"].fun))
                 # XXX the track may only have OPEN nodes, CLOSED nodes, or
                 #  PRUNED nodes when lp bound > primal evantually
 
@@ -139,9 +139,9 @@ def search(
 
             # the tree has changed: prune certifiably sub-optimal nodes
             # XXX `duals` NEVER runs out of nodes before `nodesel` raises
-            bnb.prune(tree)
+            bnb.prune(T)
 
-            tree.graph["iter"] += 1
+            T.graph["iter"] += 1
 
     except (IndexError, KeyboardInterrupt):
         pass
@@ -150,4 +150,4 @@ def search(
         pbar.close()
 
     # unless stopped early, at this point `duals` should be empty
-    return tree
+    return T

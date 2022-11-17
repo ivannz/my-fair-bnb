@@ -228,11 +228,11 @@ def init(p: MILP, **attrs: dict) -> nx.DiGraph:
     )
 
 
-def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
+def add(T: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
     """Add a new MILP sub-problem to the search tree, return its id and relaxation."""
     # solve the relaxed LP problem w/o integrality constraints
     lp = lpsolve(p)
-    G.graph["lpiter"] += lp.nit
+    T.graph["lpiter"] += lp.nit
 
     # get the correct state and compute the fractional mask
     if lp.success:
@@ -255,13 +255,13 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
         #  unbounded. Therefore we only have to worry about the root.
         status, mask = Status.INFEASIBLE, None
 
-    id = len(G)  # XXX max(G, default=0) + 1, or G.graph["n_nodes"] += 1
+    id = len(T)  # XXX max(T, default=0) + 1, or T.graph["n_nodes"] += 1
     # create the node with its MILP sub-problem, the relaxed lp solution, the
     #  mask of integer variables, that happen to have fractional values, the
     #  status, and the best-so-far integer-feasible solution in the sub-tree,
     #  which is initialized to own lp solution, when it is integer-feasible.
     best = lp if status == Status.FEASIBLE else None
-    G.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best, **attrs)
+    T.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best, **attrs)
 
     # the relaxation is INFEASIBLE, hence there is no lower bound to track
     #  and nothing to fathom anymore
@@ -275,8 +275,8 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
 
     # track the worst lp lower bound
     # XXX isn't this bound obtained right at the root by construction?
-    if dual.val > G.graph["dual_bound"].val:
-        G.graph["dual_bound"] = dual
+    if dual.val > T.graph["dual_bound"].val:
+        T.graph["dual_bound"] = dual
     # XXX the proper dual bound is be the worst (lowest) relaxed lp value
     #  among the currently OPEN nodes. The gap shoud be computed against
     #  such lower bound.
@@ -284,17 +284,17 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
     # the `duals` heap tracks only those nodes, the MILP sub-problem of which
     #  still needs their sub-tree explored.
     if status == Status.OPEN:
-        heappush(G.graph["duals"], dual)
+        heappush(T.graph["duals"], dual)
 
     # see if the integer-feasible solution may update the global incumbent
-    elif G.graph["incumbent"].fun > lp.fun:
+    elif T.graph["incumbent"].fun > lp.fun:
         assert status == Status.FEASIBLE
-        G.graph["incumbent"] = lp
+        T.graph["incumbent"] = lp
 
     return id, lp
 
 
-def gap(G: nx.DiGraph) -> float:
+def gap(T: nx.DiGraph) -> float:
     """Compute the primal-dual gap the way SCIP does it.
 
     Details
@@ -303,17 +303,17 @@ def gap(G: nx.DiGraph) -> float:
     opposite signs, otherwise, it is
             `|primalbound - dualbound| / min(|primalbound|, |dualbound|)|`.
     """
-    f_primal = G.graph["incumbent"].fun
-    f_dual = -G.graph["dual_bound"].val
+    f_primal = T.graph["incumbent"].fun
+    f_dual = -T.graph["dual_bound"].val
     if f_dual < 0 <= f_primal or f_primal < 0 <= f_dual:
         return float("inf")
 
     return abs(f_primal - f_dual) / min(abs(f_primal), abs(f_dual))
 
 
-def prune(G: nx.DiGraph) -> None:
+def prune(T: nx.DiGraph) -> None:
     """Mark OPEN nodes that certifiably CANNOT produce a better solution."""
-    duals, incumbent, nodes = G.graph["duals"], G.graph["incumbent"], G.nodes
+    duals, incumbent, nodes = T.graph["duals"], T.graph["incumbent"], T.nodes
 
     # the node at the top of the heap, has a certificate that indicates that
     #  no solution in its sub-tree node is better than the current incumbent
@@ -326,19 +326,19 @@ def prune(G: nx.DiGraph) -> None:
         nodes[node]["status"] = Status.PRUNED
 
 
-def backup(G: nx.DiGraph, node: int) -> None:
+def backup(T: nx.DiGraph, node: int) -> None:
     """Propagate this node's integer-feasible solution up the tree."""
-    data = G.nodes[node]
+    data = T.nodes[node]
     if data["status"] != Status.FEASIBLE:
         return
 
     # the best integer-feasible solutions live in a min-tree: the parent's
     #  solution is guaranteed to be not worse than a solution of any child
     best = data["best"]
-    while G.pred[node]:
+    while T.pred[node]:
         # get the parent and see if the min-tree needs fixing
-        node = next(iter(G.pred[node]))
-        data = G.nodes[node]
+        node = next(iter(T.pred[node]))
+        data = T.nodes[node]
         if data["best"] is not None and data["best"].fun <= best.fun:
             return
 
@@ -346,9 +346,9 @@ def backup(G: nx.DiGraph, node: int) -> None:
         data["best"] = best
 
 
-def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
+def branch(T: nx.DiGraph, node: int, by: int) -> tuple[int]:
     """Branch the search tree at the specified node."""
-    data, children = G.nodes[node], []
+    data, children = T.nodes[node], []
     p, lp = data["p"], data["lp"]
 
     # partition the problem into non-overlapping sub-problems
@@ -358,17 +358,17 @@ def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     #  could reuse Q and not consider P
     for p, d in (p_lo, -1), (p_hi, +1):
         # create a new node and solve its relaxation
-        leaf, c_lp = add(G, p, depth=data["depth"] + 1)
+        leaf, c_lp = add(T, p, depth=data["depth"] + 1)
         children.append(leaf)
 
         # compute the variable fractionality and link the parent to the leaf
         gain = max(c_lp.fun - lp.fun, 0)
         f_j = lp.x[by] - floor(lp.x[by])
         frac = f_j if d > 0 else 1 - f_j
-        G.add_edge(node, leaf, j=by, d=d, p=gain / frac)
+        T.add_edge(node, leaf, key=d, j=by, g=gain, f=frac)
 
         # propagate the feasible solution up the branch
-        backup(G, leaf)
+        backup(T, leaf)
 
     # return the ids of the spawned children
     return tuple(children)
