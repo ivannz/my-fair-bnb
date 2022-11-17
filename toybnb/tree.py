@@ -2,7 +2,6 @@ import numpy as np
 import networkx as nx
 
 from scipy.optimize import linprog, OptimizeResult
-from numpy.random import default_rng
 from heapq import heappush, heappop
 from math import floor, ceil
 
@@ -208,7 +207,7 @@ class Status(Enum):
 DualBound = namedtuple("DualBound", "val,node")
 
 
-def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
+def init(p: MILP, **attrs: dict) -> nx.DiGraph:
     """Initialize the branch and bound search tree."""
     return nx.DiGraph(
         None,
@@ -216,30 +215,16 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
         p=p,
         # the best integer feasible solution found so far
         incumbent=build_optresult(x=None, fun=np.inf, status=1, message=""),
-        # the queue for sub-problem prioritization
-        queue=[],  # deque([]),
-        # the max-heap of OPEN nodes ordered by the lp bound for faster pruning
-        duals=[],
-        # the path taken through the search tree [(node, primal, dual)]
-        track=[],
-        # the total number of lp solver iterations
-        lpiter=0,
-        # the total number of bnb loop iterations
-        iter=0,
-        # own random number generator for tie resolution
-        rng=default_rng(seed),
-        # the root node is unlikely to be anything other than zero
-        root=None,
         # the worst (lowest) dual bound and node (typically the root, since
         #  its feasibility region is a super set for all sub-problems in the
         #  search tree, but may be another node due to numerical issues)
         dual_bound=DualBound(-np.inf, None),
-        # statistics for variable pseudocosts
-        pseudocosts=dict(
-            lo=np.zeros(p.n),
-            hi=np.zeros(p.n),
-            n=np.zeros(p.n, int),
-        ),
+        # the max-heap of OPEN nodes ordered by the lp bound for faster pruning
+        duals=[],
+        # the total number of lp solver iterations
+        lpiter=0,
+        # other bnb tree attributes
+        **attrs,
     )
 
 

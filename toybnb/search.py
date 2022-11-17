@@ -1,5 +1,8 @@
 import networkx as nx
 
+import numpy as np
+from numpy.random import default_rng
+
 from tqdm import tqdm
 from itertools import count
 
@@ -68,7 +71,25 @@ def search(
     n_nodes = float("inf") if n_nodes is None else n_nodes
 
     # initialize the bnb tree
-    tree = bnb.init(p, seed=seed)
+    tree = bnb.init(
+        p,
+        # the root node is unlikely to be anything other than zero
+        root=None,
+        # the queue for sub-problem prioritization
+        queue=[],  # deque([]),
+        # the path taken through the search tree [(node, primal, dual)]
+        track=[],
+        # the total number of bnb loop iterations
+        iter=0,
+        # own random number generator for tie resolution
+        rng=default_rng(seed),
+        # statistics for variable pseudocosts
+        pseudocosts=dict(
+            lo=np.zeros(p.n),
+            hi=np.zeros(p.n),
+            n=np.zeros(p.n, int),
+        ),
+    )
 
     # localize certain variables
     queue = tree.graph["queue"]
