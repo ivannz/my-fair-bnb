@@ -79,7 +79,7 @@ def search(
         pbar = tqdm(count(), ncols=70, disable=verbose < 1)
 
         # create the root node
-        tree.graph["root"] = bnb.add(tree, p, depth=0)
+        tree.graph["root"], _ = bnb.add(tree, p, depth=0)
         reschedule = [tree.graph["root"]]
 
         # start the bnb loop

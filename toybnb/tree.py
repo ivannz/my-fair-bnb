@@ -243,8 +243,8 @@ def init(p: MILP, *, seed: int = None) -> nx.DiGraph:
     )
 
 
-def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
-    """Add a new MILP sub-problem to the search tree."""
+def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
+    """Add a new MILP sub-problem to the search tree, return its id and relaxation."""
     # solve the relaxed LP problem w/o integrality constraints
     lp = lpsolve(p)
     G.graph["lpiter"] += lp.nit
@@ -281,7 +281,7 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
     # the relaxation is INFEASIBLE, hence there is no lower bound to track
     #  and nothing to fathom anymore
     if not lp.success:
-        return id
+        return id, lp
 
     # We store the lp bound in `DualBound` with the OPPOSITE sign, since we'll
     #  be using it to prune certifiably sub-optimal nodes with min-heap procs
@@ -306,7 +306,7 @@ def add(G: nx.DiGraph, p: MILP, **attrs: dict) -> int:
         assert status == Status.FEASIBLE
         G.graph["incumbent"] = lp
 
-    return id
+    return id, lp
 
 
 def gap(G: nx.DiGraph) -> float:
@@ -364,21 +364,23 @@ def backup(G: nx.DiGraph, node: int) -> None:
 def branch(G: nx.DiGraph, node: int, by: int) -> tuple[int]:
     """Branch the search tree at the specified node."""
     data, children = G.nodes[node], []
-
-    # XXX if we get a sub-problem P with a feasibility set, that
-    #  is a proper subset of a MILP Q, with solution Q.x in P, or
-    #  infeasible, then we could reuse Q and not consider P
     p, lp = data["p"], data["lp"]
 
     # partition the problem into non-overlapping sub-problems
     p_lo, p_hi = split(p, by, lp.x[by])
+    # XXX if we get a sub-problem P with a feasibility set, that is a proper
+    #  subset of a MILP Q, with solution Q.x \in P, or infeasible, then we
+    #  could reuse Q and not consider P
     for p, d in (p_lo, -1), (p_hi, +1):
         # create a new node and solve its relaxation
-        leaf = add(G, p, depth=data["depth"] + 1)
+        leaf, c_lp = add(G, p, depth=data["depth"] + 1)
         children.append(leaf)
 
-        # link the node to the leaf (new or reused)
-        G.add_edge(node, leaf, var=(by, d, lp.x[by]))
+        # compute the variable fractionality and link the parent to the leaf
+        gain = max(c_lp.fun - lp.fun, 0)
+        f_j = lp.x[by] - floor(lp.x[by])
+        frac = f_j if d > 0 else 1 - f_j
+        G.add_edge(node, leaf, j=by, d=d, p=gain / frac)
 
         # propagate the feasible solution up the branch
         backup(G, leaf)
