@@ -83,34 +83,29 @@ class Tracer:
         ):
             raise NotImplementedError
 
-        # keep adding uninitialized nodes along the lineage until we find an
-        #  ancestor, which is already recorded
+        # add an un-visited node
         j = v = int(n.getNumber())
-        in_tree = v in self.T
-        while not in_tree:
-            # use the lower bound info
-            lp = build_optresult(
-                x={},
-                fun=m.getObjoffset(False) + n.getLowerbound(),
-                status=0,
-                nit=-1,
-            )
+        if v not in self.T:
+            # use the lower bound info (actually uninitialized until focused)
+            fun = m.getObjoffset(False) + n.getLowerbound()
 
-            # add an un-visited node
             self.T.add_node(
                 v,
-                lp=lp,
-                best=None,
-                n_visits=0,
-                status=Status.OPEN,
                 type=n.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
+                lp=build_optresult(x={}, fun=fun, status=0, nit=-1),
+                best=None,
+                status=Status.OPEN,
+                n_visits=0,
             )
 
-            # continue unless it is the root
-            p = n.getParent()
-            if not isinstance(p, Node):
-                break
+        # if the node has been added earlier, then update its SCIP's type
+        else:
+            # SIBLING -> LEAF, SIBLING -> FOCUSNODE, LEAF -> FOCUSNODE
+            self.T.add_node(v, type=n.getType())
 
+        # continue unless we reach the root
+        p = n.getParent()
+        while p is not None:
             # guard against poorly understood node types
             if p.getType() not in (
                 SCIP_NODETYPE.FOCUSNODE,
@@ -120,36 +115,36 @@ class Tracer:
             ):
                 raise NotImplementedError
 
-            # try not to re-add the parent nodes on the next iteration
+            # add an un-visited node
+            # XXX `add_edge` silently adds the endpoints, so we add them first
             u = int(p.getNumber())
-            in_tree = u in self.T  # XXX `add_edge` silently adds the endpoints!
+            if u not in self.T:
+                fun = m.getObjoffset(False) + p.getLowerbound()
+                self.T.add_node(
+                    u,
+                    type=p.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
+                    lp=build_optresult(x={}, fun=fun, status=0, nit=-1),
+                    best=None,
+                    status=Status.OPEN,
+                    n_visits=0,
+                )
 
-            # establish a link and ascend
+            # if the node has been added earlier, then update its SCIP's type
+            else:
+                self.T.add_node(u, type=p.getType())
+
+            # get the lp gain
+            # XXX the lower bound is meaningless until the child is focused
+            gain = max(self.sign * (n.getLowerbound() - p.getLowerbound()), 0)
+
+            # establish or update the parent (u) child (v) link
+            # XXX see [SCIP_BOUNDTYPE](/src/scip/type_lp.h#L44-50) 0-lo, 1-up
             (var,), (tau,), (uplo,) = n.getParentBranchings()
-            self.T.add_edge(u, v, var=(var.getIndex(), uplo, tau))
+            d = +1 if uplo > 0 else -1  # XXX same dir signs as in `toybnb.tree`
+            self.T.add_edge(u, v, key=d, j=var.getIndex(), x=tau, g=gain)
 
-            n, v = p, u
-
-        # continue our ascent to update the node types
-        # XXX this propagation step should be elsewhere
-        while n is not None:
-            v = int(n.getNumber())
-            assert v in self.T
-
-            # FOCUSNODE -> FORK, SIBLING -> LEAF
-            # SIBLING -> FOCUSNODE, LEAF -> FOCUSNODE
-            if n.getType() != self.T.nodes[v]["type"]:
-                if n.getType() not in (
-                    SCIP_NODETYPE.SIBLING,
-                    SCIP_NODETYPE.CHILD,
-                    SCIP_NODETYPE.LEAF,
-                    SCIP_NODETYPE.FOCUSNODE,
-                    SCIP_NODETYPE.FORK,
-                ):
-                    raise NotImplementedError
-
-            self.T.nodes[v]["type"] = n.getType()
-            n = n.getParent()
+            # ascend
+            v, n, p = u, p, p.getParent()
 
         return j
 
@@ -210,6 +205,8 @@ class Tracer:
             self.T.graph["root"] = j
 
         # maintain our own pruning pq
+        # XXX the lp value of a node is not available until it is in focus, so
+        #  we do not do this, when enumerating the open frontier
         heappush(self.duals_, DualBound(-lp.fun, j))
 
         # then current focus node may not have been designated by us as an open
@@ -246,12 +243,11 @@ class Tracer:
         nodes = self.T.nodes
         while self.duals_ and (self.T.graph["incumbent"].fun < -self.duals_[0].val):
             node = heappop(self.duals_).node
+            # do not fathom nodes, re-fathomed by SCIP
+            if nodes[node]["status"] == Status.FATHOMED:
+                continue
 
-            assert nodes[node]["status"] in (
-                Status.OPEN,
-                Status.CLOSED,
-                Status.FATHOMED,  # XXX allow shadow-visited nodes
-            )
+            assert nodes[node]["status"] in (Status.OPEN, Status.CLOSED)
             nodes[node]["status"] = Status.PRUNED
 
     def add_frontier(self, m: Model) -> set:
@@ -262,12 +258,9 @@ class Tracer:
         #  other getBest* methods pick nodes from the open (unprocessed) frontier
         new_frontier = set()
         for n in chain(*m.getOpenNodes()):
-            in_tree = int(n.getNumber()) in self.T
-            j = self.add_lineage(m, n)
-            new_frontier.add(j)
-            if not in_tree:
-                lp = self.T.nodes[j]["lp"]
-                heappush(self.duals_, DualBound(-lp.fun, j))
+            new_frontier.add(self.add_lineage(m, n))
+            # XXX We do not add to the dual pq here, becasue the leaf, child
+            #  and sibling nodes appear to have uninitialized default lp values
 
         # if the current set of open nodes is not a subset of the open nodes
         #  upon processing the previous focus node, then SCIP in its solver
