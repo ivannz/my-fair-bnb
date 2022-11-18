@@ -1,6 +1,6 @@
-# A toy BnB solver for MILP
+# my-fair-bnb: A toy BnB solver for MILP
 
-How does one learn a new algorithm? By reinventing the wheel.
+How does one learn a new algorithm? By reinventing the wheel. We implement a simple branch-and-bound search for Mixed Integer Linear Programs with external nodesel and branchrule heuristics and compare it with the powerful SCIP. Our toy bnb solver has neither the primal search heuristics, nor the constraint tighteningh, nor presolving steps.
 
 ## Setup
 
@@ -11,13 +11,13 @@ The basic working environment is set up with the following commands:
 
 # pytorch, scip, scipy and other essentials
 conda create -n toybnb python pip setuptools numpy "scipy>=1.9" networkx \
-  matplotlib notebook \
+  matplotlib scikit-learn notebook "conda-forge::pygraphviz" "conda-forge::pyscipopt" \
   && conda activate toybnb \
-  && pip install tqdm
+  && pip install tqdm ecole
 
 # packages for development and diffs
 conda install -n toybnb pytest \
-  && pip install "black[jupyter]" "conda-forge::pyscipopt" pre-commit gitpython nbdime \
+  && pip install "black[jupyter]" pre-commit gitpython nbdime \
   && pre-commit install
 
 # install the package (editable install)
