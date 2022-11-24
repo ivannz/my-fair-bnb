@@ -1,6 +1,10 @@
 # my-fair-bnb: A toy BnB solver for MILP
 
-How does one learn a new algorithm? By reinventing the wheel. We implement a simple branch-and-bound search for Mixed Integer Linear Programs with external nodesel and branchrule heuristics and compare it with the powerful SCIP. Our toy bnb solver has neither the primal search heuristics, nor the constraint tighteningh, nor presolving steps.
+How does one learn a new algorithm? By reinventing the wheel.
+
+We implement a simple branch-and-bound search for Mixed Integer Linear Programs with external nodesel and branchrule heuristics and compare it with the powerful SCIP. Our toy bnb solver has neither the primal search heuristics, nor cuts, nor constraint tightening, nor presolving steps. Also, unlike SCIP, the sub-problems are not transformed/simplified in each node, and the search space splitting is done only with respect to the original variable bounds.
+
+The notebook shows examples of random, strong and simple pseudocost branching strategies, and explores the impact of dual-bound oblivious and dual-bound aware depth-first tree traversal.
 
 ## Setup
 
