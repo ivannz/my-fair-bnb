@@ -1,3 +1,5 @@
+from ecole.environment import Branching
+
 import networkx as nx
 import operator as op
 
@@ -9,7 +11,6 @@ from heapq import heappop, heappush
 from pyscipopt import Model
 from pyscipopt.scip import Node, Solution
 from pyscipopt.scip import PY_SCIP_NODETYPE as SCIP_NODETYPE
-from ecole.environment import Branching
 
 from scipy.optimize import OptimizeResult
 
