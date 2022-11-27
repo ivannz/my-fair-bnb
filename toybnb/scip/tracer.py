@@ -363,7 +363,7 @@ class Tracer:
 
             # we can at most overcount the number of scip's nodes
             n_expected = len(self.T) + sum(2 - len(self.T[n]) for n in visited)
-            if n_expected < m.getNTotalNodes():
+            if self.T and n_expected < m.getNTotalNodes():
                 raise NotImplementedError(
                     f"Node accounting error: {n_expected} < {m.getNTotalNodes()}"
                 )
