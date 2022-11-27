@@ -7,6 +7,7 @@ from itertools import chain
 from math import fsum, isclose
 from functools import wraps
 from heapq import heappop, heappush
+from time import monotonic_ns
 
 from pyscipopt import Model
 from pyscipopt.scip import Node, Solution
@@ -58,8 +59,11 @@ class Tracer:
     frontier_: set
     fathomed_: set
 
-    def __init__(self, m: Model) -> None:
-        """Initialize the tracer tree"""
+    def __init__(self, m: Model, *, ensure: str = None) -> None:
+        """Initialize the tracer tree."""
+        assert ensure is None or ensure in ("min", "max")
+
+        # internally SCIP represents LPs as minimization problems
         sense = m.getObjectiveSense()[:3].lower()
         self.sign = -1.0 if sense == "max" else +1.0
         self.is_worse = op.lt if sense == "max" else op.gt
@@ -97,6 +101,7 @@ class Tracer:
                 best=None,
                 status=Status.OPEN,
                 n_visits=0,
+                n_order=-1,  # monotonic visitation order (-1 -- never visited)
             )
 
         # if the node has been added earlier, then update its SCIP's type
@@ -128,6 +133,7 @@ class Tracer:
                     best=None,
                     status=Status.OPEN,
                     n_visits=0,
+                    n_order=-1,
                 )
 
             # if the node has been added earlier, then update its SCIP's type
@@ -178,6 +184,10 @@ class Tracer:
         #  node, even those whose memory SCIP reclaimed
         j = self.focus_ = self.add_lineage(m, n)  # OPEN
 
+        # use monotonic clock, which cannot go backward, for recording the
+        #  focus/visitation order
+        self.T.nodes[j]["n_order"] = monotonic_ns()
+
         # the root may get visited twice
         if n.getParent() is not None and self.T.nodes[j]["n_visits"] > 0:
             raise NotImplementedError(
@@ -185,11 +195,14 @@ class Tracer:
             )
 
         # Extract the local LP solution at the focus node
+        # XXX the LP seems to be always `\min`
         trans = True
         x = {v.name: v.getLPSol() for v in m.getVars(trans)}
         val = fsum(v.getLPSol() * v.getObj() for v in m.getVars(trans))
-        c0 = m.getObjoffset(not trans)
-        assert isclose(val, n.getLowerbound())
+        assert isclose(val, n.getLowerbound())  # XXX lb is w.r.t. `\min`
+
+        # we hope, the offset has the correct sign for the LPs inside nodes
+        c0 = m.getObjoffset(not trans)  # XXX to be used for comparing with incumbent
 
         # the lp solution at the focus node cannot be integer feasible, since
         #  otherwise we would not be called in the first place
@@ -324,6 +337,36 @@ class Tracer:
         #  the past, so we must recompute their fate.
         self.shadow_ = shadow = self.add_frontier(m)
         self.fathomed_.update(shadow)
+
+        if self.focus_ is None:
+            more_than_two = [n for n in self.T if len(self.T[n]) > 2]
+            if any(more_than_two):
+                raise NotImplementedError(
+                    f"Some nodes have more than two children: `{more_than_two}`."
+                )
+
+            # SCIP's `.getNTotalNodes` reports the total number of nodes generated
+            #  by ITS search. Some of these nodes are shadow-visited, i.e. we
+            #  were never allowed to act in, since SCIP processed them internally,
+            #  but which we nevertheless saw through our frontier recovery logic.
+            #  Other nodes shadow-visited are those, which SCIP processsed IMMEDIATELY
+            #  UPON CREATION, i.e. nodes with integer-feasible or infeasible
+            #  sub-problems created due to var-splitting but immediately fathomed.
+            # In our projection of SCIP's tree the latter nodes are the visited
+            #  nodes, which have less than two children.
+            # XXX `fathomed_` are the nodes from the former category.
+            # XXX we test for upper bound, since SCIP may not consider certain
+            #  sub-problems as nodes.
+            visited = [n for n, v in self.T.nodes.items() if v["n_visits"] > 0]
+            if len(self.fathomed_) + len(visited) != len(self.T):
+                raise RuntimeError("Corrupted tree")
+
+            # we can at most overcount the number of scip's nodes
+            n_expected = len(self.T) + sum(2 - len(self.T[n]) for n in visited)
+            if n_expected < m.getNTotalNodes():
+                raise NotImplementedError(
+                    f"Node accounting error: {n_expected} < {m.getNTotalNodes()}"
+                )
 
 
 class TracedBranching(Branching):
