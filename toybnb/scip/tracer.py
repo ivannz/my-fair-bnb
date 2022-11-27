@@ -32,7 +32,7 @@ from ..tree import build_optresult, Status, DualBound
 # REFOCUSNODE = 10  # refocused for domain propagation (junction, fork, or subroot)
 
 
-def get_sol_result(m: Model, sol: Solution) -> OptimizeResult:
+def get_sol_result(m: Model, sol: Solution, sign: float = 1.0) -> OptimizeResult:
     """Parse SCIP's solution and evaluate it."""
 
     # pyscipopt does not implement meaningful method for a solution, but
@@ -45,7 +45,7 @@ def get_sol_result(m: Model, sol: Solution) -> OptimizeResult:
     val = fsum(obj[k] * v for k, v in x.items())
     c0 = m.getObjoffset(False)
 
-    return build_optresult(x=x, fun=c0 + val, status=0, nit=-1)
+    return build_optresult(x=x, fun=sign * (c0 + val), status=0, nit=-1)
 
 
 class Tracer:
@@ -97,7 +97,7 @@ class Tracer:
             self.T.add_node(
                 v,
                 type=n.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
-                lp=build_optresult(x={}, fun=fun, status=0, nit=-1),
+                lp=build_optresult(x={}, fun=self.sign * fun, status=0, nit=-1),
                 best=None,
                 status=Status.OPEN,
                 n_visits=0,
@@ -129,7 +129,7 @@ class Tracer:
                 self.T.add_node(
                     u,
                     type=p.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
-                    lp=build_optresult(x={}, fun=fun, status=0, nit=-1),
+                    lp=build_optresult(x={}, fun=self.sign * fun, status=0, nit=-1),
                     best=None,
                     status=Status.OPEN,
                     n_visits=0,
@@ -208,7 +208,7 @@ class Tracer:
         #  otherwise we would not be called in the first place
         lp = self.T.nodes[j]["lp"] = build_optresult(
             x=x,
-            fun=c0 + val,
+            fun=self.sign * (c0 + val),
             status=SCIP_LPSOLSTAT_TO_NUMERIC[m.getLPSolstat()],
             nit=m.getNLPIterations() - self.nit_,
         )
@@ -307,7 +307,7 @@ class Tracer:
                 (
                     j,
                     m.getPrimalbound(),  # self.T.graph["incumbent"].fun,
-                    self.sign * self.T.nodes[j]["lp"].fun,  # XXX not m.getDualbound()
+                    self.T.nodes[j]["lp"].fun,  # XXX not m.getDualbound()
                 )
             )
 
@@ -325,7 +325,7 @@ class Tracer:
         #  [primalAddSol](primal.c#1064)
         sols = m.getSols()
         if sols:
-            lp = get_sol_result(m, sols[0])
+            lp = get_sol_result(m, sols[0], self.sign)
             if self.is_worse(self.T.graph["incumbent"].fun, lp.fun):
                 self.T.graph["incumbent"] = lp
 
