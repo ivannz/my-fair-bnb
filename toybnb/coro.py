@@ -5,7 +5,7 @@ from time import sleep
 class Coroutine(Thread):
     """My own coroutine for control inversion.
 
-    Can use `return` and `raise` in the target, but have to call `.co_yield`
+    Can use `return` and `raise` in the target, but has to call `.co_yield`
     instead of `yield`.
     """
 
@@ -26,7 +26,7 @@ class Coroutine(Thread):
         self.co_has_started, self.co_is_finished = False, False
 
     def maybe_raise(self, clear: bool) -> ...:
-        """Either return the value of raise the pending exception."""
+        """Either return the value or raise the pending exception."""
         try:
             if self.exception_ is not None:
                 raise self.exception_
@@ -70,7 +70,7 @@ class Coroutine(Thread):
         return self.maybe_raise(True)
 
     def co_raise(self, exception: BaseException) -> None:
-        """Raise an exception at `.wait`"""
+        """Raise an exception at their `.wait`"""
         # ignore subsequent calls to co-raise
         if self.co_is_finished:
             return
@@ -82,7 +82,7 @@ class Coroutine(Thread):
         self.co_leave()
 
     def co_return(self, value: ... = None) -> None:
-        # they return by raising StopIteration at our `.wait`
+        # we return by raising StopIteration at their `.wait`
         exception = StopIteration if value is None else StopIteration(value)
         return self.co_raise(exception)
 
@@ -99,8 +99,8 @@ class Coroutine(Thread):
             del self._target, self._args, self._kwargs
 
     def enter(self) -> None:
-        """Wait for our time-slice signal, then postpone `.co_enter` in their
-        thread until `.release` in our thread.
+        """We wait for our time-slice signal, then postpone any `.co_enter`
+        in their thread until `.release` in our thread.
         """
         # XXX `.acquire` is followed by `.release` in our thread
         if self.co_is_suspended:
@@ -113,7 +113,7 @@ class Coroutine(Thread):
         # in `.enter` were interrupted, but never when `.wait_for`
 
     def leave(self) -> None:
-        """our `.release` is coupled to their `.co_enter`"""
+        """Our `.release` is coupled to their `.co_enter` and unblocks it"""
         assert self.co_is_suspended
 
         try:
@@ -127,8 +127,8 @@ class Coroutine(Thread):
             self.cv.release()
 
     def wait(self) -> ...:
-        """Wait for their `.co_yield`."""
-        # abort, if they have not started (we use Thread's private flag)
+        """We wait for their `.co_yield`."""
+        # abort, if they have not started (we could use Thread's private flag)
         if not self.co_has_started:
             raise self.OutOfSequenceError("Call `.start` to launch the coroutine.")
 
@@ -139,7 +139,7 @@ class Coroutine(Thread):
         if not self.co_is_finished:
             return self.maybe_raise(False)
 
-        # when `co_is_finished` the `exception_` is never None
+        # when `co_is_finished` the `exception_` must NEVER be None
         try:
             raise self.exception_
 
@@ -147,7 +147,7 @@ class Coroutine(Thread):
             self.exception_ = StopIteration
 
     def resume(self, value: ... = None) -> None:
-        """Resume them inside `.co_yield`"""
+        """We resume them inside their `.co_yield`"""
         if not self.co_is_suspended:
             raise self.OutOfSequenceError("`.resume` must be preceded by `.wait`")
 
@@ -157,7 +157,7 @@ class Coroutine(Thread):
         self.leave()
 
     def throw(self, exception: BaseException) -> None:
-        """Raise an exception from `.co_yield`"""
+        """We raise an exception at their `.co_yield`"""
         # XXX check exc type?
         if not self.co_is_suspended:
             raise self.OutOfSequenceError(".`throw` must be preceded by `.wait`")
