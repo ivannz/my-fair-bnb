@@ -62,7 +62,7 @@ def lpsolve(p: MILP) -> OptimizeResult:
     )
 
 
-def split(p: MILP, by: int, threshold: float) -> (MILP, MILP):
+def split(p: MILP, by: int, threshold: float) -> tuple[MILP, MILP]:
     r"""Split the problem into halves by the specified integer variable.
 
     Let $
@@ -120,6 +120,22 @@ def split(p: MILP, by: int, threshold: float) -> (MILP, MILP):
 
     # make a shallow copy
     return p._replace(bounds=b_lo), p._replace(bounds=b_hi)
+
+
+def lp_gains(
+    p: MILP, lp: OptimizeResult, mask: ndarray
+) -> tuple[ndarray, ndarray, int]:
+    """Compute LP branching gains for each candidate variable in the binary mask."""
+    lpiter = 0
+
+    # split by the variable, solve LPs, and record dual gains
+    gains = np.full((p.n, 2), np.nan)
+    for j in np.flatnonzero(mask):
+        lp_lo, lp_up = map(lpsolve, split(p, j, lp.x[j]))
+        gains[j] = lp_lo.fun - lp.fun, lp_up.fun - lp.fun
+        lpiter += lp_lo.nit + lp_up.nit
+
+    return gains.clip(0), lpiter
 
 
 class Status(Enum):
@@ -292,6 +308,16 @@ def add(T: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
         T.graph["incumbent"] = lp
 
     return id, lp
+
+
+def subproblem(T: nx.DiGraph, n: int) -> tuple[MILP, OptimizeResult, ndarray]:
+    """Get the sub-problem of the node."""
+    dt = T.nodes[n]
+    p = dt["p"]
+
+    # unpack the bitmask of the fractional vars in the node
+    mask = np.unpackbits(dt["mask"], count=p.n, bitorder="little")
+    return p, dt["lp"], mask
 
 
 def gap(T: nx.DiGraph) -> float:
