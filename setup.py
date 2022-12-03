@@ -20,6 +20,7 @@ if __name__ == "__main__":
         packages=[
             "toybnb",
             "toybnb.scip",
+            "toybnb.scip.ecole",
         ],
         python_requires=">=3.9",
         install_requires=[
