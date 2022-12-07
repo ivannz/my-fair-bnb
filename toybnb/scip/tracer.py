@@ -145,13 +145,17 @@ class Tracer:
             # establish or update the parent (u) child (v) link
             # XXX see [SCIP_BOUNDTYPE](/src/scip/type_lp.h#L44-50) 0-lo, 1-up
             # XXX the parent branching may not exist, when SCIP is shutting down
-            dir, var, tau = None, None, None
+            dir, by, frac, cost = None, None, float("nan"), float("nan")
             if n.getParentBranchings() is not None:
-                (var,), (tau,), (uplo,) = n.getParentBranchings()
-                dir = +1 if uplo > 0 else -1  # XXX same dir signs as in `toybnb.tree`
-                var = var.getIndex()
+                (var,), (bound,), (uplo,) = n.getParentBranchings()
+                # if the bound is `up` then dir should be `lo`, and vice versa
+                dir = -1 if uplo > 0 else +1  # XXX same dir signs as in `toybnb.tree`
+                by, cost = var.getIndex(), var.getObj()
 
-            self.T.add_edge(u, v, key=dir, j=var, x=tau, g=gain)
+                # XXX use the (unique) name of the splitting variable
+                frac = abs(self.T.nodes[u]["lp"].x[repr(var)] - bound)
+
+            self.T.add_edge(u, v, key=dir, j=by, g=gain, f=frac, p=gain / frac, c=cost)
 
             # ascend
             v, n, p = u, p, p.getParent()
