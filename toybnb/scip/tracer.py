@@ -3,9 +3,10 @@ import operator as op
 
 from warnings import warn
 from itertools import chain
-from math import fsum, isclose
+from math import fsum
 from heapq import heappop, heappush
 from time import monotonic_ns
+from typing import Union
 
 from pyscipopt import Model
 from pyscipopt.scip import Node, Solution
@@ -30,20 +31,35 @@ from ..tree import build_optresult, Status, DualBound
 # REFOCUSNODE = 10  # refocused for domain propagation (junction, fork, or subroot)
 
 
-def get_sol_result(m: Model, sol: Solution, sign: float = 1.0) -> OptimizeResult:
-    """Parse SCIP's solution and evaluate it."""
+def evaluate_sol(
+    m: Model,
+    x: Union[Solution, dict[str, float]],
+    sign: float = 1.0,
+    *,
+    trans: bool = True,
+) -> OptimizeResult:
+    """Parse SCIP's solution and evaluate it"""
+    if isinstance(x, Solution):
+        # pyscipopt does not implement meaningful way to extract a solution, but
+        #  thankfully, its repr is that of a dict, so it is kind of a proto-dict
+        x = eval(repr(x), {}, {})  # XXX dirty hack!
 
-    # pyscipopt does not implement meaningful method for a solution, but
-    #  thankfully, its repr is that of a dict, so it is kind of a proto-dict
-    x = eval(repr(sol), {}, {})  # XXX dirty hack!
+    if not isinstance(x, dict):
+        raise NotImplementedError(type(x))
 
     # get the coefficients in linear objective and the offset
     # XXX it appears that getVars and sol's dict have variables is the same order
-    obj = {v.name: v.getObj() for v in m.getVars(True)}
-    val = fsum(obj[k] * v for k, v in x.items())
-    c0 = m.getObjoffset(False)
+    obj = {v.name: v.getObj() for v in m.getVars(trans)}
+    if obj.keys() != x.keys():
+        raise RuntimeError(f"Invalid solution `{x}` for `{obj}`")
 
-    return build_optresult(x=x, fun=sign * (c0 + val), status=0, nit=-1)
+    val = fsum(obj[k] * v for k, v in x.items())
+    # XXX the LP seems to be always `\min`
+    # assert isclose(val, m.getCurrentNode().getLowerbound())  # XXX lb is w.r.t. `\min`
+
+    # we hope, the offset has the correct sign for the LPs inside nodes
+    c0 = m.getObjoffset(not trans)  # XXX to be used for comparing with incumbent
+    return build_optresult(x=x, fun=sign * (c0 + val), status=-1, nit=0)
 
 
 class Tracer:
@@ -67,13 +83,37 @@ class Tracer:
         self.is_worse = op.lt if sense == "max" else op.gt
 
         # figure out the objective and how to compare the solutions
-        # XXX actually we can use the `get_sol_result(m.getBestSol())`
+        # XXX actually we can use the `evaluate_sol(m, m.getBestSol(), self.sign)`
         val = float("-inf" if sense == "max" else "+inf")
         inc = build_optresult(x={}, fun=val, nit=-1, status=0)
 
         self.duals_, self.trace_, self.focus_, self.nit_ = [], [], None, 0
         self.shadow_, self.frontier_, self.fathomed_ = None, set(), set()
         self.T = nx.DiGraph(root=None, incumbent=inc)
+
+    def ensure_node(self, m: Model, n: Node) -> int:
+        """Make sure a node is in the tree and has a default local lp solution"""
+        # add an un-visited node
+        j = int(n.getNumber())
+        if j not in self.T:
+            # use the lower bound info (actually uninitialized until focused)
+            fun = m.getObjoffset(False) + n.getLowerbound()  # XXX `not trans`
+            self.T.add_node(
+                j,
+                type=n.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
+                lp=build_optresult(x={}, fun=self.sign * fun, status=0, nit=-1),
+                best=None,
+                status=Status.OPEN,
+                n_visits=0,
+                n_order=-1,  # monotonic visitation order (-1 -- never visited)
+            )
+
+        # if the node has been added earlier, then update its SCIP's type
+        else:
+            # SIBLING -> LEAF, SIBLING -> FOCUSNODE, LEAF -> FOCUSNODE
+            self.T.add_node(j, type=n.getType())
+
+        return j
 
     def add_lineage(self, m: Model, n: Node) -> int:
         """Add node's representation to the tree and ensure its lineage exists."""
@@ -86,26 +126,7 @@ class Tracer:
         ):
             raise NotImplementedError
 
-        # add an un-visited node
-        j = v = int(n.getNumber())
-        if v not in self.T:
-            # use the lower bound info (actually uninitialized until focused)
-            fun = m.getObjoffset(False) + n.getLowerbound()
-
-            self.T.add_node(
-                v,
-                type=n.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
-                lp=build_optresult(x={}, fun=self.sign * fun, status=0, nit=-1),
-                best=None,
-                status=Status.OPEN,
-                n_visits=0,
-                n_order=-1,  # monotonic visitation order (-1 -- never visited)
-            )
-
-        # if the node has been added earlier, then update its SCIP's type
-        else:
-            # SIBLING -> LEAF, SIBLING -> FOCUSNODE, LEAF -> FOCUSNODE
-            self.T.add_node(v, type=n.getType())
+        j = v = self.ensure_node(m, n)
 
         # continue unless we reach the root
         p = n.getParent()
@@ -121,26 +142,13 @@ class Tracer:
 
             # add an un-visited node
             # XXX `add_edge` silently adds the endpoints, so we add them first
-            u = int(p.getNumber())
-            if u not in self.T:
-                fun = m.getObjoffset(False) + p.getLowerbound()
-                self.T.add_node(
-                    u,
-                    type=p.getType(),  # SIBLING, LEAF, CHILD, FOCUSNODE
-                    lp=build_optresult(x={}, fun=self.sign * fun, status=0, nit=-1),
-                    best=None,
-                    status=Status.OPEN,
-                    n_visits=0,
-                    n_order=-1,
-                )
-
-            # if the node has been added earlier, then update its SCIP's type
-            else:
-                self.T.add_node(u, type=p.getType())
+            u = self.ensure_node(m, p)
+            assert self.T.nodes[u]["lp"].x
 
             # get the lp gain
             # XXX the lower bound is meaningless until the child is focused
             gain = max(self.sign * (n.getLowerbound() - p.getLowerbound()), 0)
+            # gain = float("inf") if m.isInfinity(gain) else gain
 
             # establish or update the parent (u) child (v) link
             # XXX see [SCIP_BOUNDTYPE](/src/scip/type_lp.h#L44-50) 0-lo, 1-up
@@ -155,7 +163,7 @@ class Tracer:
                 # XXX use the (unique) name of the splitting variable
                 frac = abs(self.T.nodes[u]["lp"].x[repr(var)] - bound)
 
-            self.T.add_edge(u, v, key=dir, j=by, g=gain, f=frac, p=gain / frac, c=cost)
+            self.T.add_edge(u, v, key=dir, j=by, g=gain, f=frac, c=cost)
 
             # ascend
             v, n, p = u, p, p.getParent()
@@ -201,21 +209,14 @@ class Tracer:
                 f"SCIP should not revisit nodes, other than the root. Got `{j}`."
             )
 
-        # Extract the local LP solution at the focus node
-        # XXX the LP seems to be always `\min`
+        # the lp solution at the focus node cannot be integer feasible,
+        #  since otherwise we would not be called in the first place
         trans = True
         x = {v.name: v.getLPSol() for v in m.getVars(trans)}
-        val = fsum(v.getLPSol() * v.getObj() for v in m.getVars(trans))
-        assert isclose(val, n.getLowerbound())  # XXX lb is w.r.t. `\min`
-
-        # we hope, the offset has the correct sign for the LPs inside nodes
-        c0 = m.getObjoffset(not trans)  # XXX to be used for comparing with incumbent
-
-        # the lp solution at the focus node cannot be integer feasible, since
-        #  otherwise we would not be called in the first place
+        partial = evaluate_sol(m, x, self.sign, trans=trans)
         lp = self.T.nodes[j]["lp"] = build_optresult(
-            x=x,
-            fun=self.sign * (c0 + val),
+            x=partial.x,
+            fun=partial.fun,
             status=SCIP_LPSOLSTAT_TO_NUMERIC[m.getLPSolstat()],
             nit=m.getNLPIterations() - self.nit_,
         )
@@ -334,7 +335,7 @@ class Tracer:
         #  [primalAddSol](primal.c#1064)
         sols = m.getSols()
         if sols:
-            lp = get_sol_result(m, sols[0], self.sign)
+            lp = evaluate_sol(m, sols[0], self.sign, trans=True)
             if self.is_worse(self.T.graph["incumbent"].fun, lp.fun):
                 self.T.graph["incumbent"] = lp
 
