@@ -145,9 +145,9 @@ class Tracer:
             u = self.ensure_node(m, p)
             assert self.T.nodes[u]["lp"].x
 
-            # get the lp gain
+            # get the lp gain, (lb is w.r.t. `\min`, so no need for the `sign`)
             # XXX the lower bound is meaningless until the child is focused
-            gain = max(self.sign * (n.getLowerbound() - p.getLowerbound()), 0)
+            gain = max(n.getLowerbound() - p.getLowerbound(), 0)
             # gain = float("inf") if m.isInfinity(gain) else gain
 
             # establish or update the parent (u) child (v) link
@@ -274,12 +274,15 @@ class Tracer:
 
     def add_frontier(self, m: Model) -> set:
         """Update the set of tracked open nodes and figure out shadow-visited ones."""
+        leaves, children, siblings = m.getOpenNodes()
+        if children:
+            raise NotImplementedError("Child nodes created prior to the parent.")
 
         # ensure all currently open nodes from SCIP are reflected in the tree
         # XXX [xternal.c](scip-8.0.1/doc/xternal.c#L3668-3686) implies that the
         #  other getBest* methods pick nodes from the open (unprocessed) frontier
         new_frontier = set()
-        for n in chain(*m.getOpenNodes()):
+        for n in chain(leaves, children, siblings):
             new_frontier.add(self.add_lineage(m, n))
             # XXX We do not add to the dual pq here, becasue the leaf, child
             #  and sibling nodes appear to have uninitialized default lp values
