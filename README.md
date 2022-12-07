@@ -11,6 +11,7 @@ The notebook shows examples of random, strong and simple pseudocost branching st
 The basic working environment is set up with the following commands:
 
 ```bash
+# conda update -n base -c defaults conda
 # conda deactivate && conda env remove -n toybnb
 
 # pytorch, scip, scipy and other essentials
