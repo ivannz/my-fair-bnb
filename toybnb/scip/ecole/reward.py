@@ -4,7 +4,7 @@ import networkx as nx
 from warnings import warn
 
 from numpy import ndarray
-from ecole.core.scip import Model as ecole_Model
+from ecole.core.scip import Model
 
 from ..tracer import Tracer
 
@@ -28,10 +28,10 @@ class NegLogTreeSize:
     def __init__(self) -> None:
         self.tracer = None
 
-    def before_reset(self, model: ecole_Model) -> None:
+    def before_reset(self, model: Model) -> None:
         self.tracer = Tracer(model.as_pyscipopt())
 
-    def extract(self, model: ecole_Model, fin: bool) -> ndarray:
+    def extract(self, model: Model, fin: bool) -> ndarray:
         m = model.as_pyscipopt()
         self.tracer.update(m, fin)
 
