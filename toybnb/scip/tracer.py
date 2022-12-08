@@ -5,7 +5,10 @@ from warnings import warn
 from itertools import chain
 from math import fsum, isclose, isnan
 from heapq import heappop, heappush
+
+# use monotonic for visitation order
 from time import monotonic_ns
+
 from typing import Union
 from enum import Enum
 
@@ -17,15 +20,6 @@ from scipy.optimize import OptimizeResult
 
 from .scip import SCIP_LPSOLSTAT_TO_NUMERIC
 from ..tree import build_optresult, DualBound
-
-
-class TracerNodeType(Enum):
-    OPEN = 0
-    FOCUS = 1  # the OPEN node is being focused on
-    CLOSED = 2
-    FATHOMED = 3
-    PRUNED = 4
-    SPECIAL = -1
 
 
 # SCIP_NODETYPE: form `type_tree.h`
@@ -73,7 +67,32 @@ def evaluate_sol(
     return build_optresult(x=x, fun=sign * (c0 + val), status=-1, nit=0)
 
 
+class TracerNodeType(Enum):
+    OPEN = 0
+    FOCUS = 1  # the OPEN node is being focused on
+    CLOSED = 2
+    FATHOMED = 3
+    PRUNED = 4
+    SPECIAL = -1
+
+
 class Tracer:
+    """Search-tree tracer for SCIP
+
+    Details
+    -------
+    Tracking SCIP through pyscipopt is hard. This logic in this class attempts
+    its best to recover and assign the lp solutions, lowerbounds to the tree
+    nodes. The situation is exacerbated by the very rich and complex inner logic
+    of SCIP: the nodes may change their type, may have their lower bound updated
+    after a visit, and may get repurposed without any prior notification.
+
+    The entry point to the instances is `.update` method. It begins by adding the
+    current focus node into the tree, making sure that every ancestor is up-to-date,
+    then tracks changes to the frontier -- the so called open nodes, which represent
+    yet unvisited solution regions.
+    """
+
     sign: float
     is_worse: callable
     T: nx.DiGraph
