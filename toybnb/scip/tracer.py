@@ -170,9 +170,10 @@ class Tracer:
             raise NotImplementedError
 
         v = self.update_node(m, n)
+        vlp = self.T.nodes[v]["lp"]
 
         # ascend unless we have reached the root
-        p, data = n.getParent(), self.T.nodes
+        p = n.getParent()
         while p is not None:
             # guard against poorly understood node types
             if p.getType() not in (
@@ -186,17 +187,19 @@ class Tracer:
             # add an un-visited node
             # XXX `add_edge` silently adds the endpoints, so we add them first
             u = self.update_node(m, p)
-            assert data[u]["lp"].x  # XXX the parent must have non-default lp
+            ulp = self.T.nodes[u]["lp"]
+            assert ulp.x  # XXX the parent must have non-default lp by design
 
             # get the gain using the recovered lp solutions
             # XXX `getLowerbound` is w.r.t. `\min`, so no need for the `sign`, however
             #  it's value on prior focused nodes is unreliable, e.g. infinite bound,
             #  while the node reports a valid LP solution (with `success=True`).
             # `gain = max(n.getLowerbound() - p.getLowerbound(), 0.0)`
-            gain = max(self.sign * (data[v]["lp"].fun - data[u]["lp"].fun), 0.0)
+            gain = max(self.sign * (vlp.fun - ulp.fun), 0.0)
+            # np.isclose(sum(c * (vx[k] - ux[k]) for k, c in obj.items()), gain)
 
             # XXX unless NaN, gain IS the difference between SCIP's reported lb
-            ref = data[v]["lb"] - data[u]["lb"]
+            ref = self.T.nodes[v]["lb"] - self.T.nodes[u]["lb"]
             assert isnan(gain) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)
 
             ref = self.T.edges.get((u, v), dict(g=float("nan")))["g"]
@@ -213,11 +216,11 @@ class Tracer:
                 by, cost = var.getIndex(), var.getObj()
 
                 # XXX use the (unique) name of the splitting variable
-                frac = abs(data[u]["lp"].x[repr(var)] - bound)
+                frac = abs(ulp.x[repr(var)] - bound)
 
             self.T.add_edge(u, v, key=dir, j=by, g=gain, f=frac, c=cost)
 
-            v, n, p = u, p, p.getParent()
+            v, vlp, n, p = u, ulp, p, p.getParent()
 
     def enter(self, m: Model) -> int:
         """Begin processing the focus node at the current branching point."""
