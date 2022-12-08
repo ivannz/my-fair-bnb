@@ -148,7 +148,10 @@ class Tracer:
         j = int(n.getNumber())
         if j in self.T:
             n_visits = self.T.nodes[j]["n_visits"]
-            if self.T.nodes[j]["type"] != TracerNodeType.OPEN:
+            if (
+                self.T.nodes[j]["type"] != TracerNodeType.OPEN
+                and n.getParent() is not None
+            ):
                 raise RuntimeError(j)
 
         self.T.add_node(
@@ -219,7 +222,8 @@ class Tracer:
 
             # XXX unless NaN, gain IS the difference between SCIP's reported lb
             ref = self.T.nodes[v]["lb"] - self.T.nodes[u]["lb"]
-            assert isnan(gain) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)
+            if not m.isInfinity(ref):
+                assert isnan(gain) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)
 
             ref = self.T.edges.get((u, v), dict(g=float("nan")))["g"]
             assert isnan(ref) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)
@@ -341,7 +345,7 @@ class Tracer:
         """Update the set of tracked open nodes and figure out shadow-visited ones."""
         leaves, children, siblings = m.getOpenNodes()
         if children:
-            raise NotImplementedError("Child nodes created prior to vising the parent!")
+            warn("Children created prior to branching on the parent!", RuntimeWarning)
 
         # ensure all currently open nodes from SCIP are reflected in the tree
         # XXX [xternal.c](scip-8.0.1/doc/xternal.c#L3668-3686) implies that the
@@ -370,7 +374,7 @@ class Tracer:
         self.frontier_ = new_frontier
         return shadow
 
-    def update(self, m: Model, terminate: bool = False) -> None:
+    def update(self, m: Model) -> None:
         """Update the tracer tree."""
 
         # finish processing the last focus
@@ -378,9 +382,7 @@ class Tracer:
             self.leave(m)
 
         # start processing the current focus node, unless the search has finished
-        # XXX we check `terminate` flag, since occasionally the current node may
-        #  not be none when BnB is finished (a memleak?)
-        if not terminate and m.getCurrentNode() is not None:
+        if m.getCurrentNode() is not None:
             j = self.enter(m)
 
             # record the path through the tree

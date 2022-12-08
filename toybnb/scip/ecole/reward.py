@@ -1,8 +1,6 @@
 import numpy as np
 import networkx as nx
 
-from warnings import warn
-
 from numpy import ndarray
 from ecole.core.scip import Model
 
@@ -33,13 +31,12 @@ class NegLogTreeSize:
 
     def extract(self, model: Model, fin: bool) -> ndarray:
         m = model.as_pyscipopt()
-        self.tracer.update(m, fin)
+        self.tracer.update(m)
 
+        # ecole will indicate `fin=True` while `m.getCurrentNode() is not None`
+        #  in the case when a limit is reached (gap, nodes, iter, etc)
         if not fin:
             return None
-
-        if m.getCurrentNode() is not None:
-            warn("Ecole's `fin=True` with SCIP's non-None focus.", RuntimeWarning)
 
         T = self.tracer.T
 
@@ -81,7 +78,7 @@ class LPGains:
 
     def extract(self, model: Model, fin: bool) -> ndarray:
         m = model.as_pyscipopt()
-        self.tracer.update(m, fin)
+        self.tracer.update(m)
 
         if not fin:
             return None
@@ -109,7 +106,7 @@ class LPGains:
         for u in visited:
             score, k = 1.0, 0
             for v, dt in T[u].items():
-                if n_visits[v] < 1:
+                if n_visits[v] < 1 or dt["g"] <= 0.0:
                     continue
 
                 if self.pseudocost:
