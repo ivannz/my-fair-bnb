@@ -76,6 +76,10 @@ class TracerNodeType(Enum):
     SPECIAL = -1
 
 
+class TracerLogicWarning(RuntimeWarning):
+    pass
+
+
 class Tracer:
     """Search-tree tracer for SCIP
 
@@ -140,19 +144,22 @@ class Tracer:
             nit=m.getNLPIterations() - self.nit_,
         )
 
-    def create_node(self, n: Node) -> int:
+    def create_node(self, n: Node, overwrite: bool = True) -> int:
         """Create a node in the tree with default attributes"""
         n_visits = 0
 
         # only open nodes and the root can be overwritten
         j = int(n.getNumber())
         if j in self.T:
-            n_visits = self.T.nodes[j]["n_visits"]
             if (
                 self.T.nodes[j]["type"] != TracerNodeType.OPEN
                 and n.getParent() is not None
             ):
+                if overwrite:
+                    return j
                 raise RuntimeError(j)
+
+            n_visits = self.T.nodes[j]["n_visits"]
 
         self.T.add_node(
             j,
@@ -223,10 +230,18 @@ class Tracer:
             # XXX unless NaN, gain IS the difference between SCIP's reported lb
             ref = self.T.nodes[v]["lb"] - self.T.nodes[u]["lb"]
             if not m.isInfinity(ref):
-                assert isnan(gain) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)
+                if not (isnan(gain) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)):
+                    warn(
+                        f"Recovered gain `{gain}`, lb-based `{ref}`.",
+                        TracerLogicWarning,
+                    )
 
             ref = self.T.edges.get((u, v), dict(g=float("nan")))["g"]
-            assert isnan(ref) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)
+            if not (isnan(ref) or isclose(gain, ref, rel_tol=1e-5, abs_tol=1e-6)):
+                warn(
+                    f"Gain {(u, v)} changed from `{ref}` to `{gain}`.",
+                    TracerLogicWarning,
+                )
 
             # establish or update the parent (u) child (v) link
             # XXX see [SCIP_BOUNDTYPE](/src/scip/type_lp.h#L44-50) 0-lo, 1-up
@@ -265,12 +280,13 @@ class Tracer:
         #  scan. SCIP guarantees that a node's number uniquely identifies a search
         #  node, even those whose memory SCIP reclaimed.
         # XXX if we're visiting a former child/sibling/leaf make sure it is OPEN
-        j = self.create_node(n)
+        j = self.create_node(n, overwrite=True)
 
         # only the root may get visited twice
         if n.getParent() is not None and self.T.nodes[j]["n_visits"] > 0:
-            raise NotImplementedError(
-                f"SCIP should not revisit nodes, other than the root. Got `{j}`."
+            warn(
+                f"SCIP should not revisit nodes, other than the root. Got `{j}`.",
+                TracerLogicWarning,
             )
 
         self.T.add_node(
@@ -282,7 +298,7 @@ class Tracer:
             best=None,
             # use monotonic clock for recording the focus/visitation order
             n_order=monotonic_ns(),
-            n_visits=self.T.nodes[j]["n_visits"] + 1,
+            # n_visits=...,  # XXX updated when leaving
         )
         self.update_lineage(m, n)
 
@@ -323,6 +339,7 @@ class Tracer:
         # close the focus node from our previous visit, since SCIPs bnb never
         #  revisits
         self.T.nodes[self.focus_]["type"] = TracerNodeType.CLOSED
+        self.T.nodes[self.focus_]["n_visits"] += 1
 
     def prune(self) -> None:
         """SCIP shadow-fathoms the nodes for us. We attempt to recover, which
@@ -345,7 +362,10 @@ class Tracer:
         """Update the set of tracked open nodes and figure out shadow-visited ones."""
         leaves, children, siblings = m.getOpenNodes()
         if children:
-            warn("Children created prior to branching on the parent!", RuntimeWarning)
+            warn(
+                "Children created prior to branching on the parent!",
+                TracerLogicWarning,
+            )
 
         # ensure all currently open nodes from SCIP are reflected in the tree
         # XXX [xternal.c](scip-8.0.1/doc/xternal.c#L3668-3686) implies that the
@@ -354,7 +374,7 @@ class Tracer:
         for n in chain(leaves, children, siblings):
             # sanity check: SIBLING, LEAF, CHILD
             assert n.getType() != SCIP_NODETYPE.FOCUSNODE
-            new_frontier.add(self.create_node(n))
+            new_frontier.add(self.create_node(n, overwrite=False))
             # XXX We do not add to the dual pq here, becasue the leaf, child
             #  and sibling nodes appear to have uninitialized default lp values
             self.update_lineage(m, n)
@@ -451,5 +471,5 @@ class Tracer:
             if self.T and n_expected < m.getNTotalNodes():
                 warn(
                     f"Node accounting error: {n_expected} < {m.getNTotalNodes()}",
-                    RuntimeWarning,
+                    TracerLogicWarning,
                 )
