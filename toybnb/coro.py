@@ -1,4 +1,4 @@
-from threading import Condition, Thread, Lock
+from threading import Condition, Lock, Thread
 from time import sleep
 
 

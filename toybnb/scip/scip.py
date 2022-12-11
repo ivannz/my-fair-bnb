@@ -1,14 +1,13 @@
-import numpy as np
-from scipy import sparse as sp
 from collections import defaultdict
 
-from scipy.optimize import OptimizeResult
-from pyscipopt import Model, quicksum
-from pyscipopt import SCIP_STAGE, SCIP_STATUS
+import numpy as np
+from pyscipopt import SCIP_STAGE, SCIP_STATUS, Model, quicksum
 from pyscipopt.scip import PY_SCIP_LPSOLSTAT as SCIP_LPSOLSTAT
+from scipy import sparse as sp
+from scipy.optimize import OptimizeResult
 
-from .cip import from_cip
 from ..milp import MILP
+from .cip import from_cip
 
 # remap SCIP_LPSOLSTAT to scipy's status codes
 # 0 success, 1 iteration/time limit, 2 infeasible, 3 unbounded, 4 other

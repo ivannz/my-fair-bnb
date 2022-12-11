@@ -1,13 +1,12 @@
-import numpy as np
-import networkx as nx
-
-from scipy.optimize import linprog, OptimizeResult
-from heapq import heappush, heappop
-from math import floor, ceil
-
-from numpy import ndarray
 from collections import namedtuple
 from enum import Enum
+from heapq import heappop, heappush
+from math import ceil, floor
+
+import networkx as nx
+import numpy as np
+from numpy import ndarray
+from scipy.optimize import OptimizeResult, linprog
 
 from .milp import MILP, is_feasible_int
 

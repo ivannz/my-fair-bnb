@@ -1,26 +1,22 @@
-import networkx as nx
 import operator as op
-
-from warnings import warn
+from enum import Enum
+from heapq import heappop, heappush
 from itertools import chain
 from math import fsum, isclose, isnan
-from heapq import heappop, heappush
 
 # use monotonic for visitation order
 from time import monotonic_ns
-
 from typing import Union
-from enum import Enum
+from warnings import warn
 
+import networkx as nx
 from pyscipopt import Model
-from pyscipopt.scip import Node, Solution
 from pyscipopt.scip import PY_SCIP_NODETYPE as SCIP_NODETYPE
-
+from pyscipopt.scip import Node, Solution
 from scipy.optimize import OptimizeResult
 
+from ..tree import DualBound, build_optresult
 from .scip import SCIP_LPSOLSTAT_TO_NUMERIC
-from ..tree import build_optresult, DualBound
-
 
 # SCIP_NODETYPE: form `type_tree.h`
 # FOCUSNODE   =  0  # the focus node

@@ -1,7 +1,8 @@
+from typing import Iterable
+
 from ecole import instance as ei
 from ecole.core import RandomGenerator
 from numpy.random import SeedSequence
-from typing import Iterable
 
 
 def get_generators(config: dict, entropy: int = None) -> dict[str, dict[str, Iterable]]:

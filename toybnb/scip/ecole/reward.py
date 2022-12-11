@@ -1,8 +1,7 @@
-import numpy as np
 import networkx as nx
-
-from numpy import ndarray
+import numpy as np
 from ecole.core.scip import Model
+from numpy import ndarray
 
 from ..tracer import Tracer
 

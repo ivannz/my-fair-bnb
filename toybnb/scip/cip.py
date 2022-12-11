@@ -1,10 +1,10 @@
 import re
+from collections import defaultdict
+
 import numpy as np
 from scipy import sparse as sp
 
-from collections import defaultdict
 from ..milp import MILP
-
 
 # regex for parsing pieces of CIP format
 # https://docs.python.org/3/library/re.html#simulating-scanf

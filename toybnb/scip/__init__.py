@@ -1,2 +1,1 @@
-from .scip import to_scip, from_scip  # noqa: F401
-from .scip import get_result, from_scip_lp  # noqa: F401
+from .scip import from_scip, from_scip_lp, get_result, to_scip  # noqa: F401

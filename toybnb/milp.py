@@ -1,11 +1,10 @@
-import numpy as np
-from numpy import ndarray
-
-import scipy.sparse as sp
-import networkx as nx
-
-from numpy.random import default_rng
 from collections import namedtuple
+
+import networkx as nx
+import numpy as np
+import scipy.sparse as sp
+from numpy import ndarray
+from numpy.random import default_rng
 
 MILP = namedtuple("MILP", "c,A_ub,b_ub,A_eq,b_eq,bounds,n,m,c0")
 empty = MILP(

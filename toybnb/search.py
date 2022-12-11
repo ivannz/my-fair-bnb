@@ -1,7 +1,7 @@
-import networkx as nx
-
-from tqdm import tqdm
 from itertools import count
+
+import networkx as nx
+from tqdm import tqdm
 
 from . import tree as bnb
 from .milp import MILP
