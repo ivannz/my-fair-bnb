@@ -17,12 +17,16 @@ The basic working environment is set up with the following commands:
 # pytorch, scip, scipy and other essentials
 conda create -n toybnb python pip setuptools numpy "scipy>=1.9" networkx \
   matplotlib scikit-learn notebook "conda-forge::pygraphviz" "conda-forge::pyscipopt" \
+  "pytorch::pytorch" \
   && conda activate toybnb \
-  && pip install tqdm ecole
+  && pip install tqdm einops torch-scatter ecole
+
+# A custom fork of ecole with extra obs (Tree-MDP and nodesel)
+# pip install -vv "ecole @ git+https://github.com/ivannz/ecole.git"
 
 # packages for development and diffs
 conda install -n toybnb pytest \
-  && pip install "black[jupyter]" pre-commit gitpython nbdime \
+  && pip install "black[jupyter]" pre-commit gitpython nbdime pydantic \
   && pre-commit install
 
 # install the package (editable install)
