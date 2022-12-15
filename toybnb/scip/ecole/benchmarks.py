@@ -9,7 +9,8 @@ def get_generators(config: dict, entropy: int = None) -> dict[str, dict[str, Ite
     out = {}
 
     # fork the seed sequence from the given entropy
-    ss = SeedSequence(entropy).spawn(len(config))
+    seed = entropy if isinstance(entropy, SeedSequence) else SeedSequence(entropy)
+    ss = seed.spawn(len(config))
 
     # create instance generators
     for seed, (gen, cfg) in zip(ss, config.items()):
