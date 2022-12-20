@@ -21,6 +21,7 @@ if __name__ == "__main__":
             "toybnb",
             "toybnb.scip",
             "toybnb.scip.ecole",
+            "toybnb.scip.ecole.il",
         ],
         python_requires=">=3.9",
         install_requires=[
