@@ -2,10 +2,9 @@ import ecole as ec  # noqa: F401
 import numpy as np
 import pyscipopt  # noqa: F401
 
-from ecole import reward
+from ecole import RandomGenerator, reward
 from ecole.environment import Branching
 from ecole.observation import NodeBipartite
-from ecole import RandomGenerator
 
 from numpy import _NoValue
 from numpy.random import SeedSequence

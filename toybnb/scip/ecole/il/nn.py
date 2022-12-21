@@ -1,16 +1,21 @@
-import torch
-
-from torch import Tensor, nn
-from torch.nn import Module, functional as F
-
 from math import sqrt
 
+import torch
 from einops import rearrange
-from torch_scatter import scatter_softmax, scatter_sum, scatter_mean
-from torch_scatter import scatter_log_softmax, scatter_logsumexp, scatter_max
+from torch import Tensor, nn
+from torch.nn import Module
+from torch.nn import functional as F
+from torch_scatter import (
+    scatter_log_softmax,
+    scatter_logsumexp,
+    scatter_max,
+    scatter_mean,
+    scatter_softmax,
+    scatter_sum,
+)
 
-from .data import BatchObservation
 from .brancher import BaseNeuralBranchRuleMixin
+from .data import BatchObservation
 
 
 # the layers proper are after the mixin definition
@@ -183,13 +188,13 @@ class BipartiteMHXA(Module):
         # the final head output mixer
         self.out = nn.Linear(n_embed, n_embed)
 
-        # edge data is used to multiplicatively modulate cross-attention scores
+        # edge data is used to additively modulate the cross-attention
+        #  log-scores of each head via subtracting a softplus
         if b_edges:
-            raise NotImplementedError
-            # self.edges = mlp(nn.LeakyReLU, 1, 4 * n_embed, n_heads)
+            self.edge = mlp(nn.LeakyReLU, 1, 4 * n_embed, n_heads)
 
         else:
-            self.register_module("edges", None)
+            self.register_module("edge", None)
 
     def forward(
         self,
@@ -199,8 +204,11 @@ class BipartiteMHXA(Module):
         weights: Tensor = None,
     ) -> Tensor:
         """Cross attention form `input` (query) to `other` (keys and values)"""
-        if weights is not None:
-            raise NotImplementedError
+        if (weights is None) and (self.edge is not None):
+            raise ValueError(f"Cross-attention requires edge values: `{self}`")
+
+        if (weights is not None) and (self.edge is None):
+            raise ValueError(f"Cross-attention ignores edge values, got `{weights}`.")
 
         # `coupling` specifies which `input` attends to which `other`
         #  XXX (u, v) represents a directed edge `u to v` and means
@@ -216,6 +224,9 @@ class BipartiteMHXA(Module):
         # q is N x H x 1 x F, k is N x H x F x 1
         # XXX indexing by `t` and `s` materializes potentially large tensors!
         score = torch.matmul(q[t], k[s]).div(sqrt(q.shape[-1])).squeeze(-1)
+        if self.edge is not None:
+            # score is N x H x 1, weight biases are N x 1 -->> N x H
+            score = score.sub(F.softplus(-self.edge(weights).unsqueeze(-1)))
 
         # softmax over `a` in `(q_b k_{i_a})_{a \colon j_a = b}`
         # XXX `scatter_softmax(x, j)` computes softmax over `x` grouped by j
@@ -292,7 +303,7 @@ class NeuralVariableSelector(Module, NeuralClassifierBranchruleMixin):
             dict(
                 vars=mlp(nn.LeakyReLU, n_dim_vars, 4 * n_embed, n_embed),
                 cons=mlp(nn.LeakyReLU, n_dim_cons, 4 * n_embed, n_embed),
-                edge=None,
+                edge=nn.Unflatten(-1, (-1, 1)) if b_edges else None,
                 # edge=mlp(nn.LeakyReLU, 1, 4 * n_embed, n_embed)
                 # XXX this mlp is incompatible with BipartiteMHXA
             )

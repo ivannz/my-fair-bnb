@@ -1,17 +1,16 @@
-import torch
-from torch import Tensor
-import numpy as np
-
-from numpy.random import default_rng
-from ecole.environment import Branching
-from ecole.observation import StrongBranchingScores, Pseudocosts
-from ecole.core.scip import Stage
-from typing import Callable, Iterable
 from functools import wraps
+from typing import Callable, Iterable
 
+import numpy as np
+import torch
 
-from .data import Observation, BatchObservation, collate
+from ecole.core.scip import Stage
+from ecole.environment import Branching
+from ecole.observation import Pseudocosts, StrongBranchingScores
+from numpy.random import default_rng
+from torch import Tensor
 
+from .data import BatchObservation, Observation, collate
 
 BranchRule = Callable[[Branching], int]
 BranchRuleCallable = Callable[[Observation], int]

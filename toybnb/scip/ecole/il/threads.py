@@ -1,6 +1,5 @@
-from threading import Thread, Event
-from queue import Queue, Empty
-
+from queue import Empty, Queue
+from threading import Event, Thread
 from typing import Callable
 
 

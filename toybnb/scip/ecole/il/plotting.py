@@ -1,6 +1,5 @@
 import numpy as np
 from matplotlib import pyplot as plt
-
 from matplotlib.axes import Axes
 from numpy import ndarray
 
