@@ -12,7 +12,7 @@ from torch import Tensor
 
 from .data import BatchObservation, Observation, collate
 
-BranchRule = Callable[[Branching], int]
+BranchRule = Callable[[Branching, dict], int]
 BranchRuleCallable = Callable[[Observation], int]
 
 
@@ -23,8 +23,8 @@ def strongbranch(pseudocost: bool = False) -> BranchRule:
     else:
         scorer = Pseudocosts()
 
-    def _spawn(env: Branching) -> BranchRuleCallable:
-        def _branchrule(obs: Observation, **ignored) -> int:
+    def _spawn(env: Branching, config: dict = None) -> BranchRuleCallable:
+        def _branchrule(obs: Observation) -> int:
             if env.model.stage != Stage.Solving:
                 return None
 
@@ -39,8 +39,8 @@ def strongbranch(pseudocost: bool = False) -> BranchRule:
 def randombranch(seed: int = None) -> BranchRule:
     rng = default_rng(seed)
 
-    def _spawn(env: Branching) -> BranchRuleCallable:
-        def _branchrule(obs: Observation, **ignored) -> int:
+    def _spawn(env: Branching, config: dict = None) -> BranchRuleCallable:
+        def _branchrule(obs: Observation) -> int:
             if env.model.stage == Stage.Solving:
                 return int(rng.choice(obs.actset))
             return None
@@ -62,21 +62,25 @@ class BaseNeuralBranchRuleMixin:
         raise NotImplementedError
 
 
-def batched_ml_branchrule(module: BaseNeuralBranchRuleMixin) -> BranchRuleCallable:
+def batched_ml_branchrule(
+    module: BaseNeuralBranchRuleMixin, config: dict = None
+) -> BranchRuleCallable:
+    config = {} if not isinstance(config, dict) else config
+
     @wraps(module.predict)
-    def _branchrule(batch: Iterable[Observation], **kwargs) -> Iterable[int]:
+    def _branchrule(batch: Iterable[Observation]) -> Iterable[int]:
         module.eval()
-        out = module.predict(collate(batch), **kwargs).cpu()
+        out = module.predict(collate(batch), **config).cpu()
         return np.asarray(out, dtype=int).tolist()
 
     return torch.inference_mode(mode=True)(_branchrule)
 
 
 def ml_branchrule(module: BaseNeuralBranchRuleMixin) -> BranchRule:
-    do_batch = batched_ml_branchrule(module)
+    def _spawn(env: Branching, config: dict = None) -> BranchRuleCallable:
+        do_batch = batched_ml_branchrule(module, config)
 
-    def _spawn(env: Branching) -> BranchRuleCallable:
-        def _branchrule(obs: Observation, **ignored) -> int:
+        def _branchrule(obs: Observation) -> int:
             if env.model.stage != Stage.Solving:
                 return None
 
