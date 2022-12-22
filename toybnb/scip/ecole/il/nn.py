@@ -320,6 +320,12 @@ class NeuralVariableSelector(Module, NeuralClassifierBranchruleMixin):
         ]
         self.block_vc = nn.ModuleList(blk)
 
+        if b_norm_first:
+            self.norm = nn.LayerNorm(n_embed)
+
+        else:
+            self.add_module("norm", None)
+
         self.head = mlp(nn.LeakyReLU, 2 * n_embed, 4 * n_embed, 1)
         self.s_project_graph = s_project_graph
         if s_project_graph != "none":
@@ -343,6 +349,9 @@ class NeuralVariableSelector(Module, NeuralClassifierBranchruleMixin):
         for m_cv, m_vc in zip(self.block_cv, self.block_vc):
             cons = m_cv(cons, vars, (jc, jv), edge)
             vars = m_vc(vars, cons, (jv, jc), edge)
+
+        if self.norm is not None:
+            vars = self.norm(vars)
 
         # compute the graph-level variable embedding
         if self.projection is not None:
