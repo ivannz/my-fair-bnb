@@ -63,22 +63,25 @@ class BaseNeuralBranchRuleMixin:
 
 
 def batched_ml_branchrule(
-    module: BaseNeuralBranchRuleMixin, config: dict = None
+    module: BaseNeuralBranchRuleMixin, device: torch.device = None, config: dict = None
 ) -> BranchRuleCallable:
-    config = {} if not isinstance(config, dict) else config
+    # make a shallow copy of the config dict
+    config = dict({} if not isinstance(config, dict) else config)
 
     @wraps(module.predict)
     def _branchrule(batch: Iterable[Observation]) -> Iterable[int]:
         module.eval()
-        out = module.predict(collate(batch), **config).cpu()
-        return np.asarray(out, dtype=int).tolist()
+        out = module.predict(collate(batch, device), **config)
+        return np.asarray(out.cpu(), dtype=int).tolist()
 
     return torch.inference_mode(mode=True)(_branchrule)
 
 
-def ml_branchrule(module: BaseNeuralBranchRuleMixin) -> BranchRule:
+def ml_branchrule(
+    module: BaseNeuralBranchRuleMixin, device: torch.device = None
+) -> BranchRule:
     def _spawn(env: Branching, config: dict = None) -> BranchRuleCallable:
-        do_batch = batched_ml_branchrule(module, config)
+        do_batch = batched_ml_branchrule(module, device, config)
 
         def _branchrule(obs: Observation) -> int:
             if env.model.stage != Stage.Solving:
