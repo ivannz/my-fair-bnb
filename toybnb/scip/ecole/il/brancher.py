@@ -179,9 +179,11 @@ class GenericBatchingServer(Thread):
         return co_yield
 
     def close(self):
+        self.requests.put(None)
         for com in self.conections:
             com.put(None)
 
+        self.conections.clear()
         self.join()
 
 
