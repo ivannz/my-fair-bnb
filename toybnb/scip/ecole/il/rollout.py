@@ -93,20 +93,15 @@ def evaluate(
         return e.value
 
 
-def generator(feed: Iterable, signal: Event) -> Iterable:
-    it = iter(feed)
+def t_problem_feed(feed: Iterable, put: Callable, stop: Callable[[], bool]) -> None:
     try:
-        while not signal.is_set():
-            yield next(it)
+        it = enumerate(feed)
+        while not stop():
+            j, item = next(it)
+            put((True, j, item))
 
     except StopIteration:
         pass
-
-
-def t_problem_feed(it: Iterable, put: Callable) -> None:
-    try:
-        for j, item in enumerate(it):
-            put((True, j, item))
 
     except BaseException as e:
         put((False, -1, e))
@@ -118,11 +113,13 @@ def t_problem_feed(it: Iterable, put: Callable) -> None:
 def t_rollout_worker(
     rk: int,
     factory: Callable,
-    branchrule: Callable,
     get: Callable,
     put: Callable,
     stop: Callable[[], bool] = None,
+    **rules: dict[str, BranchRule],
 ) -> None:
+    stop = stop if callable(stop) else (lambda: False)
+
     try:
         # create the branching env
         env = factory()
@@ -130,15 +127,17 @@ def t_rollout_worker(
         # keep solving problems until a stop order (None)
         for success, j, p in iter(get, None):
             if not success:
-                raise p from None
+                raise p
 
-            # dispatch each step from rollout
-            for item in rollout(p, env, branchrule, {}, stop=stop):
-                put((True, rk, j, item))
+            # we can rollout on several branchrules, one after another
+            for name, rule in rules.items():
+                # dispatch each step from rollout
+                for item in rollout(p, env, rule, {}, stop=stop):
+                    put((True, rk, j, (name, item)))
 
-            # check the stopping condition
-            if stop():
-                break
+                # check the stopping condition
+                if stop():
+                    return
 
     except BaseException as e:
         put((False, rk, j, e))
@@ -150,11 +149,13 @@ def t_rollout_worker(
 def t_evaluate_worker(
     rk: int,
     factory: Callable,
-    branchrules: Callable,
     get: Callable,
     put: Callable,
     stop: Callable[[], bool] = None,
+    **rules: dict[str, BranchRule],
 ) -> None:
+    stop = stop if callable(stop) else (lambda: False)
+
     try:
         # create the branching env
         env = factory()
@@ -162,17 +163,17 @@ def t_evaluate_worker(
         # keep solving problems until a stop order (None)
         for success, j, p in iter(get, None):
             if not success:
-                raise p from None
+                raise p
 
             # do a rollout on this instance with each branchrule
-            out = {k: evaluate(p, env, rule, {}) for k, rule in branchrules.items()}
+            out = {k: evaluate(p, env, rule, {}) for k, rule in rules.items()}
 
             # forward the evaluation results
             put((True, rk, j, out))
 
             # check the stopping condition
             if stop():
-                break
+                return
 
     except BaseException as e:
         put((False, rk, j, e))
@@ -184,23 +185,24 @@ def t_evaluate_worker(
 def pool_rollout(
     feed: Iterable,
     factories: tuple[Callable],
-    branchrule: BranchRule,
-    *,
-    maxsize: int = 128,
+    worker: Callable = t_rollout_worker,
+    **rules: dict[str, BranchRule],
 ) -> Iterable:
-    worker = t_evaluate_worker if isinstance(branchrule, dict) else t_rollout_worker
+    """Rollout the specified branchrule in Ecole's branching environment"""
+    assert worker is t_rollout_worker or worker is t_evaluate_worker
 
     # the finish signal controls the upstream problem generator
-    finish, problems, results = Event(), Queue(maxsize), Queue(maxsize)
+    # XXX limit the size of the `results` queue so that the workers would be
+    #  eventually suspended if the generator is no longer requested data from
+    finish, problems, results = Event(), Queue(128), Queue(1024)
 
     # the upstream generator puts the problems into the common shared queue
-    it = generator(feed, finish)
-    threads = [Thread(target=t_problem_feed, args=(it, problems.put))]
+    threads = [Thread(target=t_problem_feed, args=(feed, problems.put, finish.is_set))]
 
     # the downstream workers rollout on the received problems
     for rk, factory in enumerate(factories):
-        args = rk, factory, branchrule, problems.get, results.put, finish.is_set
-        threads.append(Thread(target=worker, args=args, daemon=True))
+        args = rk, factory, problems.get, results.put, finish.is_set
+        threads.append(Thread(target=worker, args=args, kwargs=rules, daemon=True))
 
     try:
         for t in threads:
@@ -208,21 +210,24 @@ def pool_rollout(
 
         for success, rk, j, result in iter(results.get, None):  # noqa: B007
             if not success:
-                raise result from None
+                raise result
 
             # the main thread yields results from the rollout output queue
             yield result
 
     finally:
-        # terminate the feeder thread and drain its outqueue (to avoid
-        #  blocking during stop order issuing)
+        # terminate the feeder thread and drain its outqueue to unblock it
         finish.set()
         while not problems.empty():
             problems.get_nowait()
 
-        # first issue a stop order to each thread and then join in a separate loop
+        # issue a stop order to each worker thread, drain their outqueue to unblock
         for _ in threads:
             problems.put(None)
 
+        while not results.empty():
+            results.get_nowait()
+
+        # join the feeder and the workers threads
         for t in threads:
             t.join()
