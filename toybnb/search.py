@@ -54,12 +54,29 @@ def nodesel_dfs(T: nx.DiGraph, *reschedule: int) -> int:
     raise IndexError
 
 
+def gap(T: nx.DiGraph) -> float:
+    """Compute the primal-dual gap the way SCIP does it.
+
+    Details
+    -------
+    SCIP's docs say that the gap is `+inf` if the primal and dual bounds have
+    opposite signs, otherwise, it is
+            `|primalbound - dualbound| / min(|primalbound|, |dualbound|)|`.
+    """
+    f_primal = T.graph["incumbent"].fun
+    f_dual = T.graph["dual_bound"]
+    if f_dual < 0 <= f_primal or f_primal < 0 <= f_dual:
+        return float("inf")
+
+    return abs(f_primal - f_dual) / min(abs(f_primal), abs(f_dual))
+
+
 def search(
     p: MILP,
     nodesel: callable,
     branchrule: callable,
     *,
-    gap: float = 0.0,
+    f_gap: float = 0.0,
     n_nodes: float = None,
     verbose: int = 0,
 ) -> nx.DiGraph:
@@ -77,6 +94,8 @@ def search(
         track=[],
         # the queue for sub-problem prioritization
         queue=[],  # deque([]),
+        # the worst (lowest) dual bound among the open nodes
+        dual_bound=float("inf"),
     )
 
     # localize certain variables
@@ -94,9 +113,11 @@ def search(
         # start the bnb loop
         for j in pbar:
             # monitor bnb search progress
-            f_gap = bnb.gap(T)
+            f_current_gap = gap(T)
             if verbose > 0:
-                pbar.set_postfix_str(f"rtol {f_gap:.4%} {len(duals)} {len(queue)}")
+                pbar.set_postfix_str(
+                    f"rtol {f_current_gap:.4%} {len(duals)} {len(queue)}"
+                )
 
             # terminate if the target primal-dual gap is surpassed or the node
             #  budget is exceeded
@@ -104,7 +125,7 @@ def search(
             #  separation of responsibilites, on the other hand, nodsel has
             #  more power: it selects nodes or quits. The nature of termination
             #  is different, though.
-            if f_gap <= gap or len(T) > n_nodes:
+            if f_current_gap <= f_gap or len(T) > n_nodes:
                 break
 
             # `nodesel` gets the next OPEN node to visit, or raises IndexError

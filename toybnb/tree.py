@@ -230,10 +230,6 @@ def init(p: MILP, **attrs: dict) -> nx.DiGraph:
         p=p,
         # the best integer feasible solution found so far
         incumbent=build_optresult(x=None, fun=np.inf, status=1, message=""),
-        # the worst (lowest) dual bound and node (typically the root, since
-        #  its feasibility region is a super set for all sub-problems in the
-        #  search tree, but may be another node due to numerical issues)
-        dual_bound=DualBound(-np.inf, None),
         # the max-heap of OPEN nodes ordered by the lp bound for faster pruning
         duals=[],
         # the total number of lp solver iterations
@@ -288,14 +284,6 @@ def add(T: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
     #  from `heapq`
     dual = DualBound(-lp.fun, id)
 
-    # track the worst lp lower bound
-    # XXX isn't this bound obtained right at the root by construction?
-    if dual.val > T.graph["dual_bound"].val:
-        T.graph["dual_bound"] = dual
-    # XXX the proper dual bound is be the worst (lowest) relaxed lp value
-    #  among the currently OPEN nodes. The gap shoud be computed against
-    #  such lower bound.
-
     # the `duals` heap tracks only those nodes, the MILP sub-problem of which
     #  still needs their sub-tree explored.
     if status == Status.OPEN:
@@ -317,23 +305,6 @@ def subproblem(T: nx.DiGraph, n: int) -> tuple[MILP, OptimizeResult, ndarray]:
     # unpack the bitmask of the fractional vars in the node
     mask = np.unpackbits(dt["mask"], count=p.n, bitorder="little")
     return p, dt["lp"], mask
-
-
-def gap(T: nx.DiGraph) -> float:
-    """Compute the primal-dual gap the way SCIP does it.
-
-    Details
-    -------
-    SCIP's docs say that the gap is `+inf` if the primal and dual bounds have
-    opposite signs, otherwise, it is
-            `|primalbound - dualbound| / min(|primalbound|, |dualbound|)|`.
-    """
-    f_primal = T.graph["incumbent"].fun
-    f_dual = -T.graph["dual_bound"].val
-    if f_dual < 0 <= f_primal or f_primal < 0 <= f_dual:
-        return float("inf")
-
-    return abs(f_primal - f_dual) / min(abs(f_primal), abs(f_dual))
 
 
 def prune(T: nx.DiGraph) -> None:
