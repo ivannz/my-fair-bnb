@@ -89,7 +89,7 @@ def search(
 
         # create the root node
         T.graph["root"], _ = bnb.add(T, p, depth=0)
-        reschedule = [T.graph["root"]]
+        children = [T.graph["root"]]
 
         # start the bnb loop
         for j in pbar:
@@ -108,34 +108,28 @@ def search(
                 break
 
             # `nodesel` gets the next OPEN node to visit, or raises IndexError
-            node = nodesel(T, *reschedule)
-            reschedule.clear()
+            node = nodesel(T, *children)
 
             # the picked node's lp solution is expected to be integer-infeasible,
             #  and still have branching options left, i.e. OPEN.
             data = nodes[node]
             assert data["status"] == Status.OPEN
 
-            # try branching at the node, marking is CLOSED if impossible
-            try:
-                # pick a branching rule and with it a variable for branching
-                # XXX this should raise IndexError if no variable can be picked
-                j = branchrule(T, node)
+            # pick a branching rule and with it a variable for branching
+            # XXX this should raise IndexError if no variable can be picked
+            j = branchrule(T, node)
 
-                # sprout and schedule the shoots, and reschedule the node
-                #  itself, since it may have other variables to explore
-                children = bnb.branch(T, node, j)
-                reschedule.append(node)
-                reschedule.extend(children)
+            # mark the node as CLOSED, since there is no reason for multiple branchings
+            data["status"] = Status.CLOSED
 
-                # add the focus node to the track after a successful branching
-                track.append((node, T.graph["incumbent"].fun, data["lp"].fun))
-                # XXX the track may only have OPEN nodes, CLOSED nodes, or
-                #  PRUNED nodes when lp bound > primal evantually
+            # sprout and schedule the shoots, and reschedule the node
+            #  itself, since it may have other variables to explore
+            children = bnb.branch(T, node, j)
 
-            except IndexError:
-                # mark the node as CLOSED, since no variable can be branched on
-                data["status"] = Status.CLOSED
+            # add the focus node to the track after a successful branching
+            track.append((node, T.graph["incumbent"].fun, data["lp"].fun, float("nan")))
+            # XXX the track may only have OPEN nodes, CLOSED nodes, or
+            #  PRUNED nodes when lp bound > primal evantually
 
             # the tree has changed: prune certifiably sub-optimal nodes
             # XXX `duals` NEVER runs out of nodes before `nodesel` raises
