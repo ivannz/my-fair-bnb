@@ -6,7 +6,7 @@ from threading import Thread, Event
 
 from ecole.scip import Model
 from ecole.environment import Branching
-from .data import Observation
+from .env import Observation
 from .brancher import BranchRule
 
 

@@ -15,7 +15,7 @@ from torch_scatter import (
 )
 
 from .brancher import BaseNeuralBranchRuleMixin
-from .data import BatchObservation
+from .env import BatchObservation
 
 
 # the layers proper are after the mixin definition

@@ -13,7 +13,7 @@ from torch import Tensor
 from queue import SimpleQueue, Empty
 from threading import Thread, Event
 
-from .data import BatchObservation, Observation, collate
+from .env import BatchObservation, Observation, collate
 
 BranchRule = Callable[[Branching, dict], int]
 BranchRuleCallable = Callable[[Observation], int]
