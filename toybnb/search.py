@@ -138,8 +138,13 @@ def search(
             assert data["status"] == Status.OPEN
 
             # pick a branching rule and with it a variable for branching
-            # XXX this should raise IndexError if no variable can be picked
-            j = branchrule(T, node)
+            # XXX rules raise IndexError if no variable can be picked. We
+            #  reraise as RuntimeError
+            try:
+                j = branchrule(T, node)
+
+            except IndexError as e:
+                raise RuntimeError(e) from None
 
             # mark the node as CLOSED, since there is no reason for multiple branchings
             data["status"] = Status.CLOSED
