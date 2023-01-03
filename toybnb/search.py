@@ -111,6 +111,7 @@ def search(
         children = [T.graph["root"]]
 
         # start the bnb loop
+        root = T.graph["root"]
         for j in pbar:
             # monitor bnb search progress
             f_current_gap = gap(T)
@@ -143,14 +144,37 @@ def search(
             # mark the node as CLOSED, since there is no reason for multiple branchings
             data["status"] = Status.CLOSED
 
-            # sprout and schedule the shoots, and reschedule the node
-            #  itself, since it may have other variables to explore
+            # sprout and schedule the shoots, and reschedule the node itself,
+            #  since it may have other variables to explore
             children = bnb.branch(T, node, j)
 
             # add the focus node to the track after a successful branching
-            track.append((node, T.graph["incumbent"].fun, data["lp"].fun, float("nan")))
-            # XXX the track may only have OPEN nodes, CLOSED nodes, or
-            #  PRUNED nodes when lp bound > primal evantually
+            track.append(
+                (node, T.graph["incumbent"].fun, data["lp"].fun, T.graph["dual_bound"])
+            )
+            # XXX the track may only have OPEN nodes, CLOSED nodes, or PRUNED
+            #  nodes when lp bound > primal evantually
+
+            # propagate the worst dual bound, since the focus is no longer open
+            # XXX Each node has its lp bound \breve{f}_n. By construction, its
+            #  childrens' bounds \breve{f}_j \geq \breve{f}_n for j \in T_n. Thus
+            #  if the focus is open, then there is no need to check its children
+            #    b_n = \breve{f}_n                  if not `CLOSED`
+            #          \min\{b_j \colon j \in T_n\} if `CLOSED` and has children
+            #          +\infty                      if `CLOSED` and childless
+            while data["status"] == Status.CLOSED:
+                # XXX the worst lower bound of the a CLOSED node is the lowest
+                #  of its childrens' worst lower bounds
+                data["lb"] = min(float("inf"), *(nodes[c]["lb"] for c in T[node]))
+                if not T.pred[node]:
+                    break
+
+                # get the parent and see if the min-tree needs fixing
+                node = next(iter(T.pred[node]))
+                data = nodes[node]
+
+            # read the worst lower bound off the root node's lb
+            T.graph["dual_bound"] = nodes[root]["lb"]
 
             # the tree has changed: prune certifiably sub-optimal nodes
             # XXX `duals` NEVER runs out of nodes before `nodesel` raises

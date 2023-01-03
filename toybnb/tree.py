@@ -272,7 +272,7 @@ def add(T: nx.DiGraph, p: MILP, **attrs: dict) -> tuple[int, OptimizeResult]:
     #  status, and the best-so-far integer-feasible solution in the sub-tree,
     #  which is initialized to own lp solution, when it is integer-feasible.
     best = lp if status == Status.FEASIBLE else None
-    T.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best, **attrs)
+    T.add_node(id, p=p, lp=lp, mask=mask, status=status, best=best, lb=lp.fun, **attrs)
 
     # the relaxation is INFEASIBLE, hence there is no lower bound to track
     #  and nothing to fathom anymore
