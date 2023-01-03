@@ -95,8 +95,12 @@ def evaluate(
 
 def generator(feed: Iterable, signal: Event) -> Iterable:
     it = iter(feed)
-    while not signal.is_set():
-        yield next(it)
+    try:
+        while not signal.is_set():
+            yield next(it)
+
+    except StopIteration:
+        pass
 
 
 def t_problem_feed(it: Iterable, put: Callable) -> None:
