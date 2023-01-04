@@ -8,6 +8,8 @@ from torch import Tensor, as_tensor
 import pyscipopt  # noqa: F401
 
 import ecole as ec  # noqa: F401
+from ecole.core.scip import Model  # noqa: F401
+
 from ecole import RandomGenerator, reward
 from ecole.environment import Branching
 from ecole.observation import NodeBipartite, NodeBipartiteObs
@@ -38,7 +40,11 @@ class BranchingWithoutPresolve:
 
 
 def make_env(
-    entropy: int = None, presolve: bool = True, scip_params: dict = _NoValue
+    entropy: int = None,
+    *,
+    presolve: bool = True,
+    scip_params: dict = _NoValue,
+    observation: NodeBipartite = None,
 ) -> Branching:
     # fork the seed sequence from the given entropy
     ss = entropy if isinstance(entropy, SeedSequence) else SeedSequence(entropy)
@@ -53,7 +59,7 @@ def make_env(
     # the branching env
     env = cls(
         # We use bipartite graph repr of the node's LP
-        observation_function=NodeBipartite(),
+        observation_function=NodeBipartite() if observation is None else observation,
         # No reward function at, since we imitate an expert
         # reward_function=reward.PrimalDualIntegral(),
         reward_function=reward.Constant(float("nan")),
