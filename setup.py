@@ -28,9 +28,25 @@ if __name__ == "__main__":
             "numpy",
             "networkx",
             "scipy",
-            "pyscipopt",
-            "ecole",
+            "tqdm",
         ],
+        extras_require={
+            "scip": [
+                "pyscipopt",
+                "ecole",
+                "matplotlib",
+                "plotly",
+            ],
+            "scip-il": [
+                "pyscipopt",
+                "ecole",
+                "torch",
+                "torch_scatter",
+                "einops",
+                "matplotlib",
+                "plotly",
+            ],
+        },
         test_requires=[
             "pytest",
         ],
