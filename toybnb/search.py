@@ -76,7 +76,7 @@ def search(
     nodesel: callable,
     branchrule: callable,
     *,
-    f_gap: float = 0.0,
+    f_gap: float = None,
     n_nodes: float = None,
     verbose: int = 0,
 ) -> nx.DiGraph:
@@ -126,7 +126,7 @@ def search(
             #  separation of responsibilites, on the other hand, nodsel has
             #  more power: it selects nodes or quits. The nature of termination
             #  is different, though.
-            if f_current_gap <= f_gap or len(T) > n_nodes:
+            if (f_gap is not None and f_current_gap <= f_gap) or len(T) > n_nodes:
                 break
 
             # `nodesel` gets the next OPEN node to visit, or raises IndexError
