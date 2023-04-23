@@ -95,7 +95,9 @@ def search(
         # the queue for sub-problem prioritization
         queue=[],  # deque([]),
         # the worst (lowest) dual bound among the open nodes
-        dual_bound=float("inf"),
+        # XXX initially the set of open nodes is empty, hence,
+        # logically, the worst dual bound should be +ve infty.
+        dual_bound=float("-inf"),
     )
 
     # localize certain variables
