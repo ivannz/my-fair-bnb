@@ -11,24 +11,38 @@ The notebook shows examples of random, strong and simple pseudocost branching st
 The basic working environment is set up with the following commands:
 
 ```bash
-# conda update -n base -c defaults conda
-# conda deactivate && conda env remove -n toybnb
+# ensure micromamba
+"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
 
-# pytorch, scip, scipy and other essentials
-conda create -n toybnb python pip setuptools numpy "scipy>=1.9" networkx \
-  matplotlib scikit-learn notebook "conda-forge::pygraphviz" "conda-forge::pyscipopt" \
-  "pytorch::pytorch" \
-  && conda activate toybnb \
-  && pip install tqdm einops torch-scatter ecole
+# setup the developer's env including pytorch, scip, scipy and other essentials
+# XXX '=' fuzzy prefix version match, '==' exact version match
+# XXX micromamba deactivate && micromamba env remove -n toybnb
+micromamba create -n toybnb \
+  "python=3.11"             \
+  numpy                     \
+  "scipy>=1.9"              \
+  networkx                  \
+  "conda-forge::pyscipopt"  \
+  scikit-learn              \
+  pytorch                   \
+  torch-scatter             \
+  ecole                     \
+  einops                    \
+  matplotlib                \
+  jupyter                   \
+  plotly                    \
+  "conda-forge::pygraphviz" \
+  tqdm                      \
+  pydantic                  \
+  "black[jupyter]"          \
+  pre-commit                \
+  gitpython                 \
+  nbdime
+
+# install the package (editable install)
+micromamba run -n toybnb pip install -e .
 
 # A custom fork of ecole with extra obs (Tree-MDP and nodesel)
 # pip install -vv "ecole @ git+https://github.com/ivannz/ecole.git"
-
-# packages for development and diffs
-conda install -n toybnb pytest \
-  && pip install "black[jupyter]" pre-commit gitpython nbdime pydantic \
-  && pre-commit install
-
-# install the package (editable install)
-pip install -e .
+pre-commit install
 ```
